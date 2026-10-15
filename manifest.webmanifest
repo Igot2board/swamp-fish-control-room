@@ -1,0 +1,16 @@
+{
+  "name": "Swamp Fish Control Room",
+  "short_name": "Swamp Fish",
+  "description": "Axolotl tank cycling, test tracking, photo-assisted color reading, and move-in readiness.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#061016",
+  "theme_color": "#07131a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {"src":"./icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
+    {"src":"./icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}

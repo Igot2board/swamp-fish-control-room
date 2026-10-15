@@ -15,4 +15,4 @@ Owner: Eric. Primary user: his wife. Axolotl: Rex, dark colored and young.
 - Technical controls, backup, provenance, experimental analysis, and calculator live in Eric Mode.
 - Exact care rules and numeric photo-reader capability were deliberately not frozen before validation.
 
-The implementation does not claim the mockup's illustrated sample is a real reader. Numeric suggestions remain disabled until labeled-photo testing supports enabling them.
+The implementation does not claim the mockup's illustrated sample is a real reader. Eric explicitly requested best-effort estimates with accept/decline on 2026-10-15. The normal flow now offers provisional suggestions without any accuracy claim, and requires keeper acceptance or correction plus final confirmation.

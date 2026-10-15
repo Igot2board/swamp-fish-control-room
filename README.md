@@ -4,7 +4,7 @@ Rex's world, made for one keeper. A **Phoenix Aquatic Systems** PWA, using the e
 
 ## Build status
 
-The approved Rex design is implemented on the v2 branch. This is a reviewable candidate, not a phone-verified production release. Automatic numeric photo interpretation is **not enabled**. Photos are stored locally; the keeper chooses values from the physical card and confirms preparation/timing. Automatic tube detection and color candidates are research diagnostics in Eric Mode only.
+The approved Rex design is implemented on the v2 branch. This is a reviewable candidate, not a phone-verified production release. Photo estimates are available in “Rex’s water report.” The keeper checks the detected tube order, accepts each estimate with “Looks right” or chooses a different value, then confirms and saves. Estimates are provisional, not calibrated measurements. Unreadable images leave values blank; manual entry remains available. Photos stay local.
 
 ## Run and verify
 
@@ -24,7 +24,7 @@ GitHub Actions performs these checks, generates release metadata, and deploys ap
 - `app.js`: approved simple interface, camera/gallery inputs, explicit confirmation, history, care notes, photo memories, backup/restore, and update coordination.
 - `model.js`: pure readiness/challenge rules; approximate history and legacy records are not readiness evidence.
 - `storage.js`: IndexedDB v1 → v2 additive migration, atomic writes, resumable drafts, full backup merge.
-- `reader.js`: offline image preparation and conservative research tube detection. No confidence percentages, no automatic values in normal mode.
+- `reader.js`: offline image preparation and conservative research tube detection. No confidence percentages. Estimates require explicit acceptance; they never populate confirmed history on their own.
 - `sw.js`: complete versioned offline shell, release consistency checks, all-client safe activation voting.
 - `scripts/release.mjs`: hashes app assets and worker behavior to generate cache identity.
 

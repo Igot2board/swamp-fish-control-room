@@ -1,4 +1,4 @@
-export const BUILD = '2.0.0-rex.1';
+export const BUILD = '2.0.0-rex.2';
 export const HOUR = 3600000;
 export const FIELDS = {
   ammonia:{label:'Ammonia',unit:'ppm',values:[0,.25,.5,1,2,4,8]},
@@ -18,7 +18,7 @@ export function validateReading(r){
   if(typeof r.note!=='string'||r.note.length>1000)throw Error('Keep the note under 1,000 characters.');
   return r;
 }
-export function eligible(r){return r?.confirmed===true&&['manual','photo_manual_confirmed'].includes(r.source);}
+export function eligible(r){return r?.confirmed===true&&['manual','photo_manual_confirmed','photo_suggested_confirmed','photo_manual_override'].includes(r.source);}
 export function fresh(r,now=Date.now()){return eligible(r)&&now>=r.createdAt&&now-r.createdAt<=24*HOUR;}
 export function latestConfirmed(readings){return readings.filter(eligible).sort((a,b)=>b.createdAt-a.createdAt)[0]||null;}
 export function latestValues(readings){const result={};for(const r of [...readings].filter(eligible).sort((a,b)=>b.createdAt-a.createdAt))for(const k of [...Object.keys(FIELDS),'temp'])if(result[k]===undefined&&r[k]!=null)result[k]={value:r[k],createdAt:r.createdAt};return result;}
@@ -73,3 +73,16 @@ export const SEEDS = [
  ['2026-10-13',null,.5,null,null,'Nitrite about 0.5–1 ppm.'],
  ['2026-10-15',0,.25,40,8,'Nitrite about 0.25–0.5 ppm; photo interpretation, not a verified measurement.']
 ].map(([date,ammonia,nitrite,nitrate,ph,note])=>({id:'seed-'+date,createdAt:Date.parse(date+'T12:00:00-05:00'),ammonia,nitrite,nitrate,ph,temp:null,lowPh:null,note,confirmed:false,source:'chat_seeded',approximate:true}));
+
+export function acceptSuggestion(draft,key){
+  if(!draft.layoutConfirmed)throw Error('Check the tube order first.');
+  const suggestion=draft.analysis?.tubes?.find(t=>t.possibleKey===key)?.research;
+  const value=suggestion?.candidates?.[0]?.value;
+  if(!FIELDS[key]?.values.includes(value))throw Error('No readable estimate for this test. Choose a value from the card.');
+  draft[key]=value;draft.decisions??={};draft.decisions[key]='accepted';draft.confirmed=false;
+  return value;
+}
+export function declineSuggestion(draft,key){
+  if(!FIELDS[key])throw Error('Unknown test.');
+  draft[key]=null;draft.decisions??={};draft.decisions[key]='declined';draft.confirmed=false;
+}

@@ -11,7 +11,7 @@ Original app.js blob: ed6cd4310b74b1807b545679c972c27b6222249a.
 
 These are synthetic falsification checks, not phone accuracy estimates.
 
-## Real photo development set
+## Initial real photo development set (reader 0.1)
 
 Eight owner-supplied original images were processed locally at maximum 480 px for research detection. Their contents are not committed or uploaded to the public repository. No independent numeric labels were supplied, so exact-class accuracy, zero false-negative rate, or confidence calibration cannot be measured.
 
@@ -26,7 +26,7 @@ Eight owner-supplied original images were processed locally at maximum 480 px fo
 | 0288 | Five tubes, room background | Finds only the three chemistry tube regions; not a complete five-tube detection |
 | 0267 | Three chemistry tubes with chart | Finds three candidate regions |
 
-Several photos may be from the same testing session; do not treat them as independent samples. These were development inputs, not held-out validation. Group detection is heuristic, without OCR, chart registration, or validated in-frame swatch correction. No unattended chemical advice or numeric autofill is permitted. New photos always start with blank values and fresh diagnostics. Ordinary UI shows the photo plus all manual fields; it does not pretend an unvalidated diagnostic is a result.
+Several photos may be from the same testing session; do not treat them as independent samples. These were development inputs, not held-out validation. Group detection is heuristic, without OCR, chart registration, or validated in-frame swatch correction. No unattended chemical advice or confirmed numeric autofill is permitted. New photos always start with blank confirmed values and fresh diagnostics. See the reader 0.2 follow-up below for the owner-authorized estimate/accept workflow.
 
 ## Software verification
 
@@ -48,3 +48,13 @@ The DOM smoke test uses linkedom and fake-indexeddb. It is not browser layout QA
 ## Deliberate limits
 
 No push notifications while closed; no cloud sync; device clearing can still remove local data. Numeric photo interpretation is an explicitly unfinished research feature. The core keeper-confirmed workflow is usable without it. Do not merge this candidate as a fully validated automatic-reader release.
+
+## Reader 0.2 — owner-requested estimates / acceptance
+
+Eric requested usable best-effort suggestions now, with “Looks right” or “Let me change it.” The review screen now shows “Rex’s water report.” Values remain null until explicitly accepted or manually entered; final physical-card and timing confirmation is still required before saving. Declining clears that value. Changing the confirmed tube order revokes prior accepted suggestions. Saved records preserve original candidates and the keeper’s acceptance/correction provenance.
+
+The detector now has a shared-liquid-band pass that tolerates narrow glare stripes. It finds five candidate tubes in 0496, 0310, 0309, 0308, and 0288; three in 0267; abstains in 0391 and 0372. This is development-set behavior, not independent validation. Some shoulder regions may still be mistaken for tube centers. The keeper must verify tube order. Low-range pH estimates are now available, with 7.6 shown as the top of the scale.
+
+The score blends normalized-color and raw Lab distance to reduce exposure sensitivity, retaining more brightness weight for ammonia. Fully white, dark, or neutral unusable samples still abstain. Single-channel saturation is no longer treated as the same thing as white glare. No score is presented as a confidence percentage. This heuristic is not in-frame chart registration and can be wrong; adjacent candidates are visible so the keeper can compare the physical chart. The latest supplied photo produces ammonia 0 (alternative 0.25), nitrite 0.25 (alternative 0.5), nitrate 20 (alternative 40), high pH 8.2 (alternative 8.0). These are software outputs, not independently verified concentrations.
+
+16 targeted tests now pass, including acceptance/decline and non-bypass of final confirmation. Actual Android and held-out measurement checks remain open.

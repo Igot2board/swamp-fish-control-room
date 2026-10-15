@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {analyzePixels,sampleRegion,researchMatches,NUMERIC_READER_VALIDATED} from '../reader.js';
+function image(rgb){const data=new Uint8ClampedArray(80*80*4);for(let i=0;i<data.length;i+=4)data.set([...rgb,255],i);return {width:80,height:80,data};}
+test('blank, clipped, dark, neutral samples abstain instead of guessing',()=>{for(const rgb of [[255,255,255],[0,0,0],[128,128,128]]){const im=image(rgb);assert.equal(sampleRegion(im,{x:1,y:1,width:70,height:70}).ok,false);assert.equal(analyzePixels(im).layout,null);assert.equal(researchMatches('ammonia',sampleRegion(im,{x:1,y:1,width:70,height:70})).candidates.length,0);}});
+test('numeric estimates remain unvalidated and cannot be a probability',()=>{assert.equal(NUMERIC_READER_VALIDATED,false);const m=researchMatches('ammonia',{ok:true,rgb:[230,212,68]});assert.equal(m.validated,false);assert.equal(m.confidence,undefined);assert.equal(m.status,'experimental');});
+test('invalid images fail explicitly',()=>assert.throws(()=>analyzePixels({width:10,height:10,data:[]})));

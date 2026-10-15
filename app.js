@@ -1,243 +1,112 @@
-(() => {
-  'use strict';
-
-  const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
-  const round = (n, d = 1) => Number(n.toFixed(d));
-
-  const palettes = {
-    ammonia: [
-      {v:0,c:'#f2dc3b',rgb:[242,220,59]},{v:.25,c:'#c8d95a',rgb:[200,217,90]},{v:.5,c:'#9bc65c',rgb:[155,198,92]},
-      {v:1,c:'#68ad64',rgb:[104,173,100]},{v:2,c:'#3d8c61',rgb:[61,140,97]},{v:4,c:'#1f6c5d',rgb:[31,108,93]},{v:8,c:'#155047',rgb:[21,80,71]}
-    ],
-    nitrite: [
-      {v:0,c:'#87c8ca',rgb:[135,200,202]},{v:.25,c:'#ad91ca',rgb:[173,145,202]},{v:.5,c:'#9b73b9',rgb:[155,115,185]},
-      {v:1,c:'#ad529e',rgb:[173,82,158]},{v:2,c:'#8e3f78',rgb:[142,63,120]},{v:5,c:'#6b315e',rgb:[107,49,94]}
-    ],
-    nitrate: [
-      {v:0,c:'#e6d24b',rgb:[230,210,75]},{v:5,c:'#e4ad45',rgb:[228,173,69]},{v:10,c:'#e07d48',rgb:[224,125,72]},
-      {v:20,c:'#dc5d4f',rgb:[220,93,79]},{v:40,c:'#ce3f50',rgb:[206,63,80]},{v:80,c:'#aa3150',rgb:[170,49,80]},{v:160,c:'#7c2943',rgb:[124,41,67]}
-    ],
-    ph: [
-      {v:7.4,c:'#c28a43',rgb:[194,138,67]},{v:7.8,c:'#da7d47',rgb:[218,125,71]},{v:8.0,c:'#c97669',rgb:[201,118,105]},
-      {v:8.2,c:'#ae5d72',rgb:[174,93,114]},{v:8.4,c:'#8f4f83',rgb:[143,79,131]},{v:8.8,c:'#6e467d',rgb:[110,70,125]}
-    ]
-  };
-
-  const defaults = { creatureName:'Swamp Fish Salander', gallons:'', wifeMode:true };
-  const state = {
-    reading: {ammonia:0,nitrite:0,nitrate:0,ph:8.2,temp:70,challenge:false,note:''},
-    photoBlob:null, photoDataUrl:null, photoNatural:{w:0,h:0}, whiteScale:[1,1,1], scan:null,
-    readings:[], settings:{...defaults}, challengeStarted:null, deferredInstall:null
-  };
-
-  // ---------- IndexedDB ----------
-  const DB_NAME='swamp-fish-control-room'; const DB_VER=1; const STORE='readings';
-  function openDB(){
-    return new Promise((resolve,reject)=>{
-      const req=indexedDB.open(DB_NAME,DB_VER);
-      req.onupgradeneeded=()=>{ const db=req.result; if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE,{keyPath:'id',autoIncrement:true}); };
-      req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error);
-    });
-  }
-  async function dbAll(){ const db=await openDB(); return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readonly');const r=tx.objectStore(STORE).getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error);}); }
-  async function dbAdd(obj){ const db=await openDB(); return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');const r=tx.objectStore(STORE).add(obj);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);}); }
-  async function dbClear(){ const db=await openDB(); return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');const r=tx.objectStore(STORE).clear();r.onsuccess=()=>res();r.onerror=()=>rej(r.error);}); }
-
-  function loadLocal(){
-    try { state.settings={...defaults,...JSON.parse(localStorage.getItem('sf_settings')||'{}')}; } catch { state.settings={...defaults}; }
-    const timer=Number(localStorage.getItem('sf_challenge_started')); state.challengeStarted=Number.isFinite(timer)&&timer>0?timer:null;
-  }
-  function saveLocal(){ localStorage.setItem('sf_settings',JSON.stringify(state.settings)); if(state.challengeStarted) localStorage.setItem('sf_challenge_started',String(state.challengeStarted)); else localStorage.removeItem('sf_challenge_started'); }
-
-  // ---------- Navigation ----------
-  function showPage(name){
-    $$('.tab').forEach(b=>b.classList.toggle('active',b.dataset.page===name));
-    $$('.page').forEach(p=>p.classList.toggle('active',p.dataset.pagePanel===name));
-    if(name==='history') renderHistory();
-  }
-  $$('.tab').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
-
-  // ---------- Reading chips ----------
-  function buildChips(key, target){
-    const wrap=$(target); wrap.innerHTML='';
-    palettes[key].forEach(item=>{
-      const b=document.createElement('button'); b.type='button'; b.className='reading-chip'; b.dataset.value=String(item.v);
-      b.innerHTML=`<span class="chip-dot" style="background:${item.c}"></span>${item.v}${item.v===5&&key==='nitrite'?'+':''}`;
-      b.setAttribute('aria-label',`${key} ${item.v} ppm`);
-      b.addEventListener('click',()=>{state.reading[key]=item.v; updateChips(); evaluate();});
-      wrap.appendChild(b);
-    });
-  }
-  buildChips('ammonia','#ammoniaChoices'); buildChips('nitrite','#nitriteChoices'); buildChips('nitrate','#nitrateChoices');
-  function updateChips(){
-    [['ammonia','#ammoniaChoices','#ammoniaOut'],['nitrite','#nitriteChoices','#nitriteOut'],['nitrate','#nitrateChoices','#nitrateOut']].forEach(([key,sel,out])=>{
-      $$('.reading-chip',$(sel)).forEach(b=>b.classList.toggle('active',Number(b.dataset.value)===state.reading[key]));
-      $(out).textContent=`${state.reading[key]} ppm`;
-    });
-  }
-
-  ['#phInput','#tempInput','#challengeInput','#noteInput'].forEach(sel=>$(sel).addEventListener(sel==='#challengeInput'?'change':'input',()=>{
-    state.reading.ph=Number($('#phInput').value); state.reading.temp=clamp(Number($('#tempInput').value)||70,45,90); state.reading.challenge=$('#challengeInput').checked; state.reading.note=$('#noteInput').value.trim(); evaluate();
-  }));
-  $('#resetReadingBtn').addEventListener('click',()=>{
-    state.reading={ammonia:0,nitrite:0,nitrate:0,ph:8.2,temp:70,challenge:false,note:''};
-    $('#phInput').value='8.2';$('#tempInput').value='70';$('#challengeInput').checked=false;$('#noteInput').value=''; updateChips();evaluate();
-  });
-
-  function verdict(){
-    const r=state.reading; const steps=[]; const gates=[];
-    const amPass=r.ammonia===0, niPass=r.nitrite===0, nitratePass=r.nitrate<20, tempPass=r.temp<=68, phPass=r.ph>=7.2&&r.ph<=8.4;
-    gates.push(['Ammonia',amPass,`${r.ammonia} ppm`, 'Needs 0 ppm']); gates.push(['Nitrite',niPass,`${r.nitrite} ppm`,'Needs 0 ppm']); gates.push(['Nitrate',nitratePass,`${r.nitrate} ppm`,'Prefer <20 ppm before move-in']); gates.push(['Temperature',tempPass,`${r.temp}°F`,'Aim 60–68°F']); gates.push(['pH',phPass,`${r.ph}`,'Stable ~7.2–8.4 is workable']);
-    let code='CYCLING', title='HOLD — cycle still in progress', text='', cls='status-hold';
-    if(r.challenge && amPass && niPass){ code='CHALLENGE PASS'; title='GO — biofilter challenge passed'; cls='status-ready'; text='The 24-hour challenge cleared to 0 ammonia and 0 nitrite.'; if(!nitratePass) steps.push('Do a water change before move-in to bring nitrate below about 20 ppm.'); if(!tempPass) steps.push('Cool the tank into the 60–68°F range, then verify it stays stable.'); if(!phPass) steps.push('Re-check pH. Avoid rapid pH-up/down swings.'); if(steps.length===0) steps.push('Final husband/wife victory lap: verify temperature, hides, safe substrate, and a normal-looking animal before move-in.'); }
-    else if(amPass&&niPass){ code='FINAL TEST'; title='Ready for the 1 ppm challenge'; cls='status-ready'; text='Ammonia and nitrite are both zero. The biofilter is ready for its commissioning test.'; steps.push('Dose the empty tank to about 1 ppm ammonia once.','Wait 24 hours.','Pass = 0 ppm ammonia AND 0 ppm nitrite after 24 hours.'); }
-    else { text='The biofilter is working, but measurable ammonia or nitrite means the axolotl stays out for now.'; if(r.ammonia>0) steps.push('Do not add another ammonia dose while ammonia is still measurable.'); if(r.nitrite>0) steps.push('Let the nitrite-processing bacteria work; retest in 24–48 hours.'); if(r.nitrite>=5) steps.push('If nitrite stays pegged for days, a partial water change can bring it back into a readable range.'); }
-    if(r.nitrate>40) steps.push('Nitrate is high. Plan a substantial water change before move-in.'); else if(r.nitrate>=20 && !(r.challenge&&amPass&&niPass)) steps.push('Nitrate is accumulating normally; lower it before move-in.');
-    if(r.temp>68 && !(r.challenge&&amPass&&niPass)) steps.push('This temperature is fine for cycling, but cool the tank before the axolotl moves in.');
-    if(phPass) steps.push('pH is in a workable range; stability beats chasing a “perfect” number with chemicals.');
-    const gateCount=[amPass,niPass,nitratePass,tempPass,phPass].filter(Boolean).length;
-    return {code,title,text,steps,gates,gateCount,cls};
-  }
-
-  function evaluate(){
-    const v=verdict();
-    $('#statusCode').textContent=v.code; $('#statusTitle').textContent=v.title; $('#statusText').textContent=v.text; $('#cycleScore').textContent=v.gateCount+' / 5'; $('#cycleBar').style.width=(v.gateCount/5*100)+'%';
-    const hero=$('#heroStatus'); hero.classList.remove('status-hold','status-ready','status-fail'); hero.classList.add(v.cls);
-    $('#verdictTitle').textContent=v.title; $('#verdictText').textContent=v.text;
-    $('#nextSteps').innerHTML=v.steps.map((s,i)=>`<div class="step"><span class="step-num">${i+1}</span><span>${escapeHtml(s)}</span></div>`).join('');
-    $('#gateList').innerHTML=v.gates.map(([name,pass,val,hint])=>`<div class="gate-row ${pass?'gate-pass':'gate-fail'}"><span class="gate-icon">${pass?'✓':'!'}</span><div><strong>${name}</strong><small>${escapeHtml(hint)}</small></div><span class="gate-state">${escapeHtml(val)}</span></div>`).join('');
-    $('#diagA').textContent=state.reading.ammonia.toFixed(2);$('#diagN').textContent=state.reading.nitrite.toFixed(2);$('#diagNa').textContent=state.reading.nitrate;$('#diagPh').textContent=state.reading.ph;$('#diagT').textContent=state.reading.temp;$('#diagState').textContent=v.code==='CHALLENGE PASS'?'GO':'HOLD';
-    $('#flowA').textContent=state.reading.ammonia===0?'Stage 1 is clearing ammonia to the API kit’s zero reading.':`Residual ammonia: ${state.reading.ammonia} ppm.`;
-    $('#flowN').textContent=state.reading.nitrite===0?'Stage 2 is clearing nitrite to zero.':`Residual nitrite: ${state.reading.nitrite} ppm — this is the current bottleneck.`;
-    $('#flowNa').textContent=state.reading.nitrate===0?'No nitrate measured yet / recently diluted.':`Nitrate present at ${state.reading.nitrate} ppm; manage it with water changes before move-in.`;
-    $('#terminalText').textContent=[
-      `AXO-01 // ${new Date().toLocaleString()}`,
-      `NH3=${state.reading.ammonia} ppm | NO2=${state.reading.nitrite} ppm | NO3=${state.reading.nitrate} ppm`,
-      `pH=${state.reading.ph} | TEMP=${state.reading.temp}F | CHALLENGE=${state.reading.challenge?'YES':'NO'}`,
-      `READINESS_GATES=${v.gateCount}/5 | GATE=${v.code}`, 
-      `ACTION=${v.steps[0]||'VERIFY'}`
-    ].join('\n');
-  }
-
-  function escapeHtml(s){ return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
-
-  // ---------- Save / history ----------
-  async function compressPhoto(file){
-    if(!file) return null;
-    const img=await fileToImage(file); const max=1280; const scale=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
-    const c=document.createElement('canvas'); c.width=Math.round(img.naturalWidth*scale);c.height=Math.round(img.naturalHeight*scale);c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-    return await new Promise(res=>c.toBlob(res,'image/jpeg',.76));
-  }
-  function fileToImage(file){ return new Promise((res,rej)=>{const img=new Image();const u=URL.createObjectURL(file);img.onload=()=>{URL.revokeObjectURL(u);res(img)};img.onerror=rej;img.src=u;}); }
-
-  $('#saveReadingBtn').addEventListener('click',async()=>{
-    const btn=$('#saveReadingBtn'); const old=btn.textContent; btn.disabled=true;btn.textContent='Saving…';
-    try{
-      const rec={createdAt:Date.now(), ...state.reading, creatureName:state.settings.creatureName||'Swamp Fish Salander', photo:state.photoBlob||null};
-      await dbAdd(rec); state.readings=await dbAll(); btn.textContent='Logged ✓'; setTimeout(()=>btn.textContent=old,1300);
-    }catch(e){alert('Could not save this reading on the device. '+(e?.message||''));btn.textContent=old;}finally{setTimeout(()=>btn.disabled=false,500)}
-  });
-
-  async function renderHistory(){
-    try{state.readings=await dbAll();}catch{state.readings=[]}
-    const list=$('#historyList'), empty=$('#historyEmpty');
-    if(!state.readings.length){list.innerHTML='';empty.classList.remove('hidden');$('#chartWrap').classList.add('hidden');$('#chartEmpty').classList.remove('hidden');return;}
-    empty.classList.add('hidden'); $('#chartWrap').classList.remove('hidden');$('#chartEmpty').classList.add('hidden');
-    const sorted=[...state.readings].sort((a,b)=>b.createdAt-a.createdAt);
-    list.innerHTML='';
-    for(const r of sorted){
-      const card=document.createElement('div');card.className='history-card';
-      const date=new Date(r.createdAt).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
-      card.innerHTML=`<div class="history-top"><div><strong>${escapeHtml(date)}</strong><div class="history-values">NH₃ ${r.ammonia} • NO₂ ${r.nitrite} • NO₃ ${r.nitrate} • pH ${r.ph} • ${r.temp}°F</div>${r.note?`<div class="history-note">${escapeHtml(r.note)}</div>`:''}</div></div>`;
-      if(r.photo){const img=document.createElement('img');img.className='history-thumb';img.alt='Saved test photo';img.src=URL.createObjectURL(r.photo);$('.history-top',card).appendChild(img)}
-      list.appendChild(card);
-    }
-    drawChart();
-  }
-  $('#chartMetric').addEventListener('change',drawChart);
-  function drawChart(){
-    if(!state.readings.length)return;
-    const metric=$('#chartMetric').value; const data=[...state.readings].sort((a,b)=>a.createdAt-b.createdAt).slice(-24);
-    const svg=$('#trendChart'); const W=700,H=280,p={l:48,r:20,t:18,b:34}; const vals=data.map(r=>Number(r[metric])); let min=Math.min(...vals),max=Math.max(...vals);
-    if(metric==='temp'){min=Math.min(min,60);max=Math.max(max,72)} else if(metric==='ph'){min=Math.min(min,7);max=Math.max(max,8.8)} else {min=0;max=Math.max(max,metric==='nitrate'?20:1)} if(max===min)max=min+1;
-    const x=i=>p.l+(data.length===1?(W-p.l-p.r)/2:i*(W-p.l-p.r)/(data.length-1)); const y=v=>p.t+(max-v)*(H-p.t-p.b)/(max-min);
-    const grid=[0,.25,.5,.75,1].map(f=>{const yy=p.t+f*(H-p.t-p.b);const val=max-f*(max-min);return `<line class="chart-grid" x1="${p.l}" y1="${yy}" x2="${W-p.r}" y2="${yy}"/><text class="chart-label" x="4" y="${yy+4}">${round(val,metric==='temp'?0:1)}</text>`}).join('');
-    const pts=data.map((r,i)=>`${x(i)},${y(Number(r[metric]))}`).join(' '); const dots=data.map((r,i)=>`<circle class="chart-dot" cx="${x(i)}" cy="${y(Number(r[metric]))}" r="5"><title>${new Date(r.createdAt).toLocaleDateString()}: ${r[metric]}</title></circle>`).join('');
-    const first=new Date(data[0].createdAt).toLocaleDateString([], {month:'short',day:'numeric'}), last=new Date(data[data.length-1].createdAt).toLocaleDateString([], {month:'short',day:'numeric'});
-    svg.innerHTML=`${grid}<polyline class="chart-line" points="${pts}"/>${dots}<text class="chart-label" x="${p.l}" y="${H-8}">${first}</text><text class="chart-label" text-anchor="end" x="${W-p.r}" y="${H-8}">${last}</text>`;
-  }
-
-  // ---------- Photo assist ----------
-  const canvas=$('#photoCanvas'), ctx=canvas.getContext('2d',{willReadFrequently:true}); let photoImg=null; let whiteMode=false;
-  $('#photoInput').addEventListener('change',async e=>{
-    const file=e.target.files?.[0]; if(!file||!file.type.startsWith('image/'))return;
-    try{
-      photoImg=await fileToImage(file); state.photoBlob=await compressPhoto(file); state.photoDataUrl=URL.createObjectURL(file); state.photoNatural={w:photoImg.naturalWidth,h:photoImg.naturalHeight};
-      const max=1400, scale=Math.min(1,max/photoImg.naturalWidth);canvas.width=Math.round(photoImg.naturalWidth*scale);canvas.height=Math.round(photoImg.naturalHeight*scale);ctx.drawImage(photoImg,0,0,canvas.width,canvas.height);
-      $('#photoStage').classList.remove('hidden');$('#photoEmpty').classList.add('hidden');$('#whiteBalanceBtn').disabled=false;$('#clearPhotoBtn').disabled=false;$('#photoHint').textContent='Tap the center of a tube. Optional: tap “card white” first, then tap a white area of the API card.';
-    }catch{alert('Could not load that image.');}
-  });
-  $('#clearPhotoBtn').addEventListener('click',()=>{photoImg=null;state.photoBlob=null;state.scan=null;state.whiteScale=[1,1,1];$('#photoInput').value='';$('#photoStage').classList.add('hidden');$('#photoEmpty').classList.remove('hidden');$('#applyScanBtn').disabled=true;$('#scanSuggestion').textContent='—';$('#scanConfidence').textContent='Load a photo, then tap the tube.';$('#confidenceBar').style.width='0';$('#sampleSwatch').style.background='#192a33';$('#sampleRgb').textContent='No sample';$('#sampleDetail').textContent='White-balance calibration is optional.';});
-  $('#whiteBalanceBtn').addEventListener('click',()=>{whiteMode=true;$('#photoHint').textContent='White balance mode: tap a neutral white area of the API card.';});
-  canvas.addEventListener('pointerup',ev=>{
-    const rect=canvas.getBoundingClientRect(); const x=(ev.clientX-rect.left)*canvas.width/rect.width; const y=(ev.clientY-rect.top)*canvas.height/rect.height;
-    if(x<0||y<0||x>=canvas.width||y>=canvas.height)return;
-    showMarker(ev.clientX-rect.left,ev.clientY-rect.top,rect.width,rect.height);
-    const rgb=sampleAverage(x,y,Math.max(4,Math.round(canvas.width/180)));
-    if(whiteMode){state.whiteScale=[255/Math.max(1,rgb[0]),255/Math.max(1,rgb[1]),255/Math.max(1,rgb[2])].map(v=>clamp(v,.65,1.55));whiteMode=false;$('#photoHint').textContent='White balance calibrated. Now select a test type and tap the center of its tube.';$('#sampleDetail').textContent='Card-white calibration applied.';return;}
-    const balanced=rgb.map((v,i)=>clamp(Math.round(v*state.whiteScale[i]),0,255)); analyzeSample(balanced);
-  });
-  function showMarker(px,py,w,h){const m=$('#tapMarker');m.classList.remove('hidden');m.style.left=(px/w*100)+'%';m.style.top=(py/h*100)+'%';}
-  function sampleAverage(cx,cy,r){const d=ctx.getImageData(Math.max(0,cx-r),Math.max(0,cy-r),Math.min(canvas.width,cx+r)-Math.max(0,cx-r),Math.min(canvas.height,cy+r)-Math.max(0,cy-r)).data;const arr=[];for(let i=0;i<d.length;i+=4){const bright=(d[i]+d[i+1]+d[i+2])/3;if(d[i+3]>200&&bright>18&&bright<245)arr.push([d[i],d[i+1],d[i+2]])}if(!arr.length)return[0,0,0];arr.sort((a,b)=>(a[0]+a[1]+a[2])-(b[0]+b[1]+b[2]));const trimmed=arr.slice(Math.floor(arr.length*.12),Math.ceil(arr.length*.88));return[0,1,2].map(k=>Math.round(trimmed.reduce((s,p)=>s+p[k],0)/trimmed.length));}
-  function rgbToLab(rgb){
-    let [r,g,b]=rgb.map(v=>v/255).map(v=>v>.04045?Math.pow((v+.055)/1.055,2.4):v/12.92); let x=(r*.4124+g*.3576+b*.1805)/.95047,y=(r*.2126+g*.7152+b*.0722),z=(r*.0193+g*.1192+b*.9505)/1.08883; const f=v=>v>.008856?Math.cbrt(v):(7.787*v)+(16/116);x=f(x);y=f(y);z=f(z);return[(116*y)-16,500*(x-y),200*(y-z)];
-  }
-  function distLab(a,b){return Math.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2+(a[2]-b[2])**2)}
-  function analyzeSample(rgb){
-    const key=$('#scanTestSelect').value, lab=rgbToLab(rgb); const ranked=palettes[key].map(p=>({...p,d:distLab(lab,rgbToLab(p.rgb))})).sort((a,b)=>a.d-b.d); const best=ranked[0], second=ranked[1];
-    const margin=Math.max(0,second.d-best.d), confidence=clamp(Math.round((margin/(second.d+1))*120 + (1-Math.min(best.d,70)/70)*35),5,96);
-    state.scan={key,value:best.v,confidence,rgb}; $('#scanSuggestion').textContent=`${best.v}${key==='ph'?'':' ppm'}`;$('#scanConfidence').textContent=`${confidence}% confidence • assisted estimate`;$('#confidenceBar').style.width=confidence+'%';$('#sampleSwatch').style.background=`rgb(${rgb.join(',')})`;$('#sampleRgb').textContent=`RGB ${rgb.join(' / ')}`;$('#sampleDetail').textContent=confidence<45?'Low confidence — confirm manually.':confidence<70?'Reasonable match — confirm against the card.':'Strong match — still confirm against the card.';$('#applyScanBtn').disabled=false;
-  }
-  $('#applyScanBtn').addEventListener('click',()=>{if(!state.scan)return;const {key,value}=state.scan;if(key==='ph'){state.reading.ph=value;$('#phInput').value=String(value)}else{state.reading[key]=value;updateChips()}evaluate();showPage('check');});
-
-  // ---------- Water change ----------
-  function calcWater(){
-    const g=Number($('#tankGallons').value||state.settings.gallons), current=Math.max(0,Number($('#wcCurrent').value)||0), target=Math.max(0,Number($('#wcTarget').value)||0); if(!g||g<=0){$('#wcPercent').textContent='—';$('#wcGallons').textContent='Enter tank size.';return;} if(current<=0||target>=current){$('#wcPercent').textContent='0%';$('#wcGallons').textContent='No dilution needed for that target.';return;} const pct=clamp((1-target/current)*100,0,100), gal=g*pct/100;$('#wcPercent').textContent=`${Math.ceil(pct)}%`;$('#wcGallons').textContent=`About ${round(gal,1)} gallons of ${round(g,1)} gallons.`;
-  }
-  ['#tankGallons','#wcCurrent','#wcTarget'].forEach(s=>$(s).addEventListener('input',calcWater));
-
-  // ---------- Timer ----------
-  function updateTimer(){
-    if(!state.challengeStarted){$('#challengeClock').textContent='Not running';$('#challengeDue').textContent='Start when you dose to ~1 ppm ammonia.';return;}
-    const due=state.challengeStarted+24*3600*1000, diff=due-Date.now(); if(diff<=0){$('#challengeClock').textContent='RETEST NOW';$('#challengeDue').textContent=`24-hour mark reached ${new Date(due).toLocaleString()}.`;return;}
-    const h=Math.floor(diff/3600000),m=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);$('#challengeClock').textContent=`${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`;$('#challengeDue').textContent=`Retest due ${new Date(due).toLocaleString()}.`;
-  }
-  $('#startChallengeBtn').addEventListener('click',()=>{state.challengeStarted=Date.now();saveLocal();updateTimer();});
-  $('#stopChallengeBtn').addEventListener('click',()=>{state.challengeStarted=null;saveLocal();updateTimer();});
-  $('#calendarBtn').addEventListener('click',()=>{const start=state.challengeStarted||Date.now(), due=new Date(start+24*3600*1000);const fmt=d=>d.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z');const ics=`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Swamp Fish Control Room//EN\r\nBEGIN:VEVENT\r\nUID:${Date.now()}@swampfish\r\nDTSTAMP:${fmt(new Date())}\r\nDTSTART:${fmt(due)}\r\nDTEND:${fmt(new Date(due.getTime()+15*60000))}\r\nSUMMARY:Retest axolotl tank\r\nDESCRIPTION:24-hour ammonia challenge retest: check ammonia and nitrite.\r\nEND:VEVENT\r\nEND:VCALENDAR`;downloadBlob(new Blob([ics],{type:'text/calendar'}),'swamp-fish-retest.ics');});
-  setInterval(updateTimer,1000);
-
-  // ---------- Settings ----------
-  function applySettings(){
-    $('#creatureNameInput').value=state.settings.creatureName;$('#settingsGallons').value=state.settings.gallons;$('#wifeModeInput').checked=state.settings.wifeMode;$('#creatureLine').textContent=`Keeping ${state.settings.creatureName || 'one suspicious water Muppet'} alive.`; if(state.settings.gallons){$('#tankGallons').value=state.settings.gallons;calcWater();}
-  }
-  $('#saveSettingsBtn').addEventListener('click',()=>{state.settings.creatureName=$('#creatureNameInput').value.trim()||defaults.creatureName;state.settings.gallons=$('#settingsGallons').value;state.settings.wifeMode=$('#wifeModeInput').checked;saveLocal();applySettings();alert('Saved on this device.');});
-
-  // ---------- Export/import ----------
-  function downloadBlob(blob,name){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000)}
-  async function exportBackup(){const readings=await dbAll();const safe=readings.map(({photo,...r})=>r);const payload={app:'Swamp Fish Control Room',version:1,exportedAt:new Date().toISOString(),settings:state.settings,challengeStarted:state.challengeStarted,readings:safe};downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),`swamp-fish-backup-${new Date().toISOString().slice(0,10)}.json`);}
-  $('#exportBtn').addEventListener('click',exportBackup);$('#exportAllBtn').addEventListener('click',exportBackup);
-  $('#importInput').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!Array.isArray(data.readings))throw new Error('No readings array');if(!confirm(`Replace this device's saved history with ${data.readings.length} imported readings?`))return;await dbClear();for(const r of data.readings)await dbAdd({...r,photo:null});state.settings={...defaults,...(data.settings||{})};state.challengeStarted=Number(data.challengeStarted)||null;saveLocal();applySettings();state.readings=await dbAll();renderHistory();alert('Backup imported.');}catch(err){alert('Import failed: '+err.message)}});
-
-  // ---------- Install PWA ----------
-  window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.deferredInstall=e;$('#installBtn').classList.remove('hidden')});
-  $('#installBtn').addEventListener('click',async()=>{if(!state.deferredInstall)return;state.deferredInstall.prompt();await state.deferredInstall.userChoice;state.deferredInstall=null;$('#installBtn').classList.add('hidden')});
-  window.addEventListener('appinstalled',()=>$('#installBtn').classList.add('hidden'));
-  if('serviceWorker'in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
-
-  // ---------- Startup ----------
-  loadLocal(); applySettings(); updateChips(); evaluate(); updateTimer();
-  dbAll().then(r=>{state.readings=r}).catch(()=>{});
-})();
+import {BUILD,FIELDS,HOUR,blankReading,validateReading,eligible,latestConfirmed,status,challengeResult} from './model.js';
+import * as db from './storage.js';
+import {readPhoto,READER_VERSION} from './reader.js';
+const $=s=>document.querySelector(s),main=$('#main');
+let restoreSettings=false;
+let readings=[],events=[],settings={},draft=null,screen='home',busy=false,dbReady=false,photoURL=null,urls=[],writeQueue=Promise.resolve(),updateWaiting=null;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const date=t=>new Date(t).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+const day=t=>new Date(t).toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'});
+const localTime=t=>{const d=new Date(t);return new Date(t-d.getTimezoneOffset()*60000).toISOString().slice(0,16);};
+function message(text,error=false){const el=$(error?'#error':'#notice');el.textContent=text;el.hidden=!text;}
+function fail(e){message(e.message||'Something went wrong. Try again; your saved history is still here.',true);}
+function back(label='Home'){return `<button class="back" data-go="home" type="button">← ${label}</button>`;}
+const icon=name=>name==='camera'?'<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/></svg>':'<svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m3 17 5-5 4 4 4-5 5 6"/><circle cx="8" cy="8" r="1"/></svg>';
+const mascot=`<div class="aquarium" role="img" aria-label="Rex, a dark little axolotl with feathery gills"><div class="floor"></div><i class="bubble"></i><i class="bubble b2"></i><i class="bubble b3"></i><div class="rex"><div class="body"></div><div class="gills"><b></b><b></b><b></b></div><div class="gills right"><b></b><b></b><b></b></div><div class="head"><i class="eye"></i><i class="eye right"></i><i class="smile"></i></div><div class="feet"></div></div></div>`;
+$('#eric-button').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c1 6 6 6 6 11a6 6 0 0 1-12 0c0-3 2-5 3-6-1 5 2 5 2 2 0-2 1-4 1-7Zm0 11c-4 4-2 7 0 7s4-3 0-7Z"/></svg>';
+function cleanupURLs(){for(const u of urls)URL.revokeObjectURL(u);urls=[];}
+function blobURL(blob){const u=URL.createObjectURL(blob);urls.push(u);return u;}
+function captureButtons(){return `<button type="button" class="action" data-capture="camera">${icon('camera')}Take a test photo</button><button type="button" class="action secondary" data-capture="gallery">${icon('gallery')}Choose an existing photo</button>`;}
+async function refresh(){readings=await db.all('readings');events=await db.all('events');}
+async function saveSettings(){await db.put('meta',{id:'settings',value:settings});}
+function queueDraft(){const snapshot=structuredClone(draft);writeQueue=writeQueue.catch(()=>{}).then(()=>db.put('meta',{id:'draft',value:snapshot}));writeQueue.catch(fail);return writeQueue;}
+function newDraft(){return {...blankReading(),id:crypto.randomUUID(),createdAt:Date.now(),photo:null,analysis:null,layoutConfirmed:false,timingConfirmed:false};}
+function render(page=screen){screen=page;cleanupURLs();main.replaceChildren();$('#error').hidden=true;
+ if(page==='home')home();else if(page==='review')review();else if(page==='progress')progress();else if(page==='care')care();else if(page==='challenge')challengePage();else if(page==='eric')eric();else if(page==='move')movePage();
+}
+function home(){const s=status(readings,settings,events),r=s.latest,seed=[...readings].filter(r=>r.source==='chat_seeded').sort((a,b)=>b.createdAt-a.createdAt)[0];
+ main.innerHTML=`${mascot}<div class="intro"><span class="tag">${settings.movedInAt?"Rex's home":"Rex's new home"}</span><h2>${esc(s.title)}</h2><p>${settings.movedInAt?'New digs. Same suspicious little face.':s.stage==='Cycling'&&!r?'The little guy has big plans.':esc(s.stage)+' · The little guy has big plans.'}</p></div>
+ ${draft?'<div class="next"><strong>You have an unfinished test.</strong><button type="button" class="action secondary" data-go="review">Continue your test</button></div>':''}
+ <div class="next"><small>${settings.movedInAt?'Next care step':'Next step'}</small><strong>${esc(s.next)}</strong><p>${esc(s.detail)}</p></div>${captureButtons()}<div class="center"><button type="button" class="text-action" data-action="manual">Enter readings without a photo</button><br><button type="button" class="text-action" data-go="progress">${settings.movedInAt?"See Rex's story":"See Rex's move-in progress"} →</button></div>
+ ${r?`<div class="latest"><div class="row"><span class="mini">LAST SAVED TEST</span><span class="mini">${esc(date(r.createdAt))}</span></div>${numberRow(r)}${Date.now()-r.createdAt>24*HOUR?'<p class="mini">Over 24 hours old · take a fresh test for current status.</p>':''}</div>`:seed?`<div class="latest"><span class="mini">FROM YOUR EARLIER NOTES · ${esc(day(seed.createdAt))}</span>${numberRow(seed)}<p class="mini">Approximate history. Save a new test to confirm where the tank is now.</p></div>`:''}
+ <div class="center"><button class="text-action" data-go="${settings.movedInAt?'care':'challenge'}">${settings.movedInAt?'Log care or a Rex memory':'Final challenge & home checks'}</button></div>`;
+}
+function numberRow(r){return `<div class="numbers">${['ammonia','nitrite','nitrate'].map(k=>`<div><span>${FIELDS[k].label}</span><strong>${r[k]==null?'—':(r.approximate?'~':'')+esc(r[k])}<span>${r[k]!=null?' ppm':''}</span></strong></div>`).join('')}</div>`;}
+function review(){if(!draft){render('home');return;}const a=draft.analysis;
+ main.innerHTML=`${back()}<span class="tag">Today's test</span><h2>Let's check<br>these together.</h2>${draft.photo?`<img class="photo-view" src="${blobURL(draft.photo)}" alt="Your test photo"><p>${esc(a?.quality?.mean<25||a?.quality?.mean>245?'This photo is hard to read. Try another photo, or enter values from your physical card.':'Your photo is ready. Check the readings below.')}</p>`:'<p>Choose the values you read on your physical test card. Leave anything untested blank.</p>'}
+ ${draft.photo?'<div class="next"><strong>Choose your card readings below.</strong><p>The photo stays with your test. For now, read the values from your physical card.</p></div>':''}
+ <label class="field">When was this test?<input type="datetime-local" id="test-time" value="${Number.isFinite(draft.createdAt)?localTime(draft.createdAt):''}" required><small>For an older photo, use the time the test was actually read.</small></label>
+ <div class="field-grid">${Object.entries(FIELDS).map(([k,f])=>`<label class="field">${f.label}${f.unit?' · '+f.unit:''}<select data-value="${k}"><option value="">Not tested / unsure</option>${f.values.map(v=>`<option value="${v}" ${draft[k]===v?'selected':''}>${v}${(k==='ammonia'&&v===8)||(k==='nitrite'&&v===5)||(k==='nitrate'&&v===160)?' or higher':''}</option>`).join('')}</select></label>`).join('')}<label class="field">Temperature · °F<input id="temperature" type="number" min="32" max="100" step="0.1" inputmode="decimal" placeholder="Not checked" value="${draft.temp??''}"></label></div>
+ <label class="field">A note, if you like<textarea id="test-note" maxlength="1000" rows="2" placeholder="Water change, filter work, muppet business…">${esc(draft.note)}</textarea></label>
+ <label class="check"><input id="timing" type="checkbox" ${draft.timingConfirmed?'checked':''}>I followed the kit's mixing and reading times for the values I entered.</label><label class="check"><input id="confirmed" type="checkbox" ${draft.confirmed?'checked':''}>I've checked these values against the physical test card or thermometer.</label>
+ <button type="button" class="action" id="save-test" ${!draft.confirmed||!draft.timingConfirmed?'disabled':''}>Save test</button><div class="actions"><button type="button" class="text-action" data-action="retry">Choose another photo</button><button type="button" class="text-action" data-action="discard">Discard unfinished test</button></div>
+ <details class="details"><summary>Need help with the test?</summary><p>Follow your kit's printed instructions, including its shaking and waiting times. Compare against the physical chart with a white background and even light. Keep flash and reflections off the liquid.</p><a href="https://www.apifishcare.com/products/api-freshwater-master-test-kit" target="_blank" rel="noopener">API kit information</a></details>`;
+}
+function chart(metric){const rows=readings.filter(r=>typeof r[metric]==='number').sort((a,b)=>a.createdAt-b.createdAt);if(!rows.length)return '<p>No readings for this trend yet.</p>';const w=360,h=190,pad=34,minTime=rows[0].createdAt,maxTime=rows.at(-1).createdAt,max=Math.max(1,...rows.map(r=>r[metric]));const x=r=>pad+(maxTime===minTime?(w-pad*2)/2:(r.createdAt-minTime)/(maxTime-minTime)*(w-pad*2)),y=r=>h-pad-r[metric]/max*(h-pad*2);
+ return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(FIELDS[metric].label)} history, ppm. Hollow dots are approximate or legacy entries."><line x1="${pad}" y1="${pad}" x2="${pad}" y2="${h-pad}"/><line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}"/><text x="2" y="${pad+4}">${max}</text><text x="14" y="${h-pad+4}">0</text><text x="${pad}" y="17">${esc(FIELDS[metric].label)} · ppm</text>${rows.map(r=>`<circle cx="${x(r)}" cy="${y(r)}" r="4" ${!eligible(r)?'style="fill:#081b26;stroke:#a7eddf;stroke-width:2"':''}><title>${esc(day(r.createdAt))}: ${r[metric]} ppm${!eligible(r)?' (approximate / legacy)':''}</title></circle>`).join('')}<text x="${pad}" y="${h-7}">${esc(new Date(minTime).toLocaleDateString([],{month:'short',day:'numeric'}))}</text><text x="${w-pad}" text-anchor="end" y="${h-7}">${esc(new Date(maxTime).toLocaleDateString([],{month:'short',day:'numeric'}))}</text></svg><p class="mini">Hollow dots: approximate or legacy. Solid dots: confirmed by you.</p>`;
+}
+function progress(){const s=status(readings,settings,events);main.innerHTML=`${back()}<span class="tag">${settings.movedInAt?"Rex's story":'The road to move-in'}</span><h2>${settings.movedInAt?'A little bigger.<br>Still a muppet.':'Small tests.<br>Big progress.'}</h2>${settings.movedInAt?`<div class="celebrate"><strong>Rex entered the swamp.</strong><p>${esc(day(settings.movedInAt))}</p></div>`:`<div class="rail">${['Cycling','Almost ready','Final challenge','Move-in'].map(stage=>`<div class="${stage===s.stage?'current':''}">${stage}</div>`).join('')}</div>${s.gates.map(g=>`<div class="gate ${g.pass?'pass':''}"><span>${g.pass?'✓':'○'}</span>${g.label}</div>`).join('')}<button class="text-action" data-go="challenge">See the final challenge →</button>`}
+ <label class="field">Water-test trend<select id="metric"><option value="nitrite">Nitrite</option><option value="ammonia">Ammonia</option><option value="nitrate">Nitrate</option></select></label><div id="trend">${chart('nitrite')}</div><h3>Our little history</h3><div id="history">${[...readings.map(r=>({...r,kind:'reading'})),...events].sort((a,b)=>b.createdAt-a.createdAt).map(r=>`<article class="record"><div class="record-top"><strong>${esc(day(r.createdAt))}</strong><span class="pill">${r.kind==='reading'?(eligible(r)?'Confirmed':r.source==='chat_seeded'?'Approximate':'Earlier app'):esc(r.kind.replaceAll('_',' '))}</span></div>${r.kind==='reading'?numberRow(r):''}<p>${esc(r.note||'')}</p>${r.kind==='reading'&&(r.ph!=null||r.temp!=null)?`<p>High pH: ${r.ph??'—'} · Temperature: ${r.temp??'—'}°F</p>`:''}${r.photo instanceof Blob?`<img loading="lazy" src="${blobURL(r.photo)}" alt="${r.kind==='memory'?'Rex memory':'Saved water test'}">`:''}</article>`).join('')}</div>`;}
+function care(){main.innerHTML=`${back()}<span class="tag">Rex's home</span><h2>A little care.<br>A happy routine.</h2><p>Log what you actually did. Saved care notes stay alongside the water tests.</p><label class="field">What happened?<select id="event-kind"><option value="water_change">Water change</option><option value="feeding">Feeding</option><option value="cleaning">Spot clean</option><option value="filter_reset">Filter media replaced</option><option value="dose">Extra ammonia dose (empty tank only)</option><option value="memory">Rex memory</option></select></label><label class="field">When?<input id="event-time" type="datetime-local" value="${localTime(Date.now())}"></label><label class="field">A note<textarea id="event-note" rows="3" maxlength="1000" placeholder="What you changed, a little milestone…"></textarea></label><button class="action" data-action="save-care">Save care note</button><button class="action secondary" data-action="memory">Add a Rex photo</button>`;if(settings.movedInAt)$('#event-kind option[value="dose"]').remove();}
+function challengePage(){const s=status(readings,settings,events),c=s.challenge;main.innerHTML=`${back()}<span class="tag">${settings.movedInAt?'Rex is home':'Empty-tank challenge'}</span><h2>${settings.movedInAt?'The new chapter.':'The final stretch.'}</h2>${settings.movedInAt?'<p>Rex lives here now. Fishless dosing instructions are switched off.</p><button class="action" data-go="care">Log care</button>':`
+ <p>The final challenge records a measured 2 ppm ammonia start, then confirmed zero ammonia and nitrite within 24 hours, at the intended cool temperature.</p><p class="mini">A 1 ppm test is useful progress, but does not complete this final challenge.</p><div class="next"><small>Challenge status</small><strong>${esc({none:'Not started',running:'Running',passed:'Processing challenge recorded',interrupted:'Interrupted — a fresh challenge is needed',unproven:'24-hour clearance not demonstrated',invalid:'Starting evidence needs checking'}[c.state])}</strong>${c.due?`<p>Retest by ${esc(date(c.due))}.</p>`:''}</div>
+ <label class="check"><input id="empty-tank" type="checkbox">Rex and all other animals are outside this tank.</label><button class="action secondary" data-action="start-challenge">Use latest test as challenge start</button><p class="mini">First save the measured post-dose test: ammonia 2 ppm or higher, nitrite zero, and temperature 60–65°F. It must be within the last hour. Follow the ammonia product's own directions; this app does not calculate a dose.</p>
+ ${settings.challenge?'<button class="text-action" data-action="cancel-challenge">End this challenge attempt</button>':''}<button class="text-action" data-go="care">Log water change or another intervention</button>
+ <h3>Before move-in</h3>${s.gates.map(g=>`<div class="gate ${g.pass?'pass':''}"><span>${g.pass?'✓':'○'}</span>${g.label}</div>`).join('')}
+ <label class="check"><input id="home-checks" type="checkbox">I've checked stable temperature and pH, safe flooring, hides, gentle filter flow, and conditioned water.</label><button class="action secondary" data-action="home-checks">Save final home checks</button><button class="action" data-go="move" ${!s.ready?'disabled':''}>Record Rex's move-in</button>
+ <details class="details"><summary>Why these checks?</summary><p>Current readings must be no more than 24 hours old. Old estimates do not clear gates. API lists ideal pH at 7.2–7.6; the inherited 7.2–8.4 range is a review band, not proof of ideal pH. Confirm stability and suitability before move-in, without chasing a number with chemicals.</p><a target="_blank" rel="noopener" href="https://www.axolotlcentral.com/cycling-guide">Cycling guide</a><br><a target="_blank" rel="noopener" href="https://www.apifishcare.com/blog/caring-for-your-axolotl">API axolotl care</a></details>`}`;}
+function movePage(){if(settings.movedInAt||!status(readings,settings,events).ready){render('challenge');return;}main.innerHTML=`${back()}${mascot}<span class="tag">A big little day</span><h2>Rex has entered<br>the swamp.</h2><p>Record this only after Rex has actually moved into the new tank.</p><label class="field">Move-in date<input id="move-date" type="date" value="${localTime(Date.now()).slice(0,10)}"></label><button class="action" data-action="move">Rex is home</button>`;}
+function eric(){main.innerHTML=`${back('Back to Rex')}<span class="tag">Phoenix engineering</span><h2>Hey, Eric.</h2><p>Your corner of the swamp.</p><div class="milestone"><strong>Swamp Muppet ${BUILD}</strong><p id="update-state">${updateWaiting?'Update downloaded; waiting for a safe moment.':'Checks for updates when opened online.'}</p><button class="text-action" data-action="update">Check for updates</button></div>
+ <div class="milestone"><strong>Local records</strong><p>${readings.filter(eligible).length} confirmed · ${readings.filter(r=>r.source==='chat_seeded').length} approximate · ${events.length} care notes</p><button class="smallbutton" data-action="export">Back up everything</button> <button class="smallbutton" data-action="restore">Merge a backup</button><label class="check"><input type="checkbox" id="restore-settings">Also restore preferences, move-in date, and challenge record</label><p class="mini">Includes photos. Browser storage can be removed by Android or by clearing site data; keep a backup somewhere safe.</p><button class="text-action" data-action="persist">Ask Android to keep local storage</button></div>
+ <div class="milestone"><strong>Research reader ${READER_VERSION}</strong><p>Tube detection is experimental. Numeric estimates are disabled in the normal flow. No photos leave this device.</p><details class="details"><summary>Last photo diagnostics</summary><pre>${esc(JSON.stringify(draft?.analysis||'Take a test photo to inspect its local analysis.',null,2))}</pre></details></div>
+ <div class="milestone"><h3>Water-change estimate</h3><label class="field">Actual water volume · gallons<input id="gallons" type="number" min="1" step="0.1" value="${esc(settings.gallons)}"></label><div class="field-grid"><label class="field">Current nitrate · ppm<input id="wc-current" type="number" min="0" placeholder="40"></label><label class="field">Replacement nitrate · ppm<input id="wc-source" type="number" min="0" placeholder="Test source water"></label><label class="field">Target nitrate · ppm<input id="wc-target" type="number" min="0" placeholder="10"></label></div><button class="smallbutton" data-action="water-math">Calculate</button><p id="water-result" aria-live="polite"></p></div>
+ <details class="details"><summary>Correction tools</summary><p>Undo an accidental move-in marker without deleting history.</p><button class="smallbutton" data-action="undo-move" ${!settings.movedInAt?'disabled':''}>Undo move-in marker</button></details>`;}
+async function startCapture(kind){if(busy||!dbReady)return;if(draft){render('review');message('Continue your unfinished test, or discard it before starting another.');return;}$(kind==='camera'?'#camera':'#gallery').click();}
+async function onFile(e){const file=e.target.files?.[0];e.target.value='';if(!file)return;busy=true;message('Preparing your photo…');try{const photo=await readPhoto(file);draft={...newDraft(),photo:photo.blob,analysis:photo.analysis};await queueDraft();render('review');message('');}catch(err){fail(err);message('You can also enter the test values without a photo.');}finally{busy=false;}}
+$('#camera').addEventListener('change',onFile);$('#gallery').addEventListener('change',onFile);
+$('#eric-button').addEventListener('click',()=>render('eric'));
+main.addEventListener('change',async e=>{try{
+ if(screen==='review'&&draft){const el=e.target;if(el.dataset.value){draft[el.dataset.value]=el.value===''?null:Number(el.value);draft.confirmed=false;$('#confirmed').checked=false;}else if(el.id==='temperature'){draft.temp=el.value===''?null:Number(el.value);draft.confirmed=false;$('#confirmed').checked=false;}else if(el.id==='test-time'){draft.createdAt=new Date(el.value).getTime();if(!Number.isFinite(draft.createdAt))draft.createdAt=null;}else if(el.id==='confirmed')draft.confirmed=el.checked;else if(el.id==='timing')draft.timingConfirmed=el.checked;else if(el.id==='layout')draft.layoutConfirmed=el.checked;else if(el.id==='test-note')draft.note=el.value;
+ $('#save-test').disabled=!draft.confirmed||!draft.timingConfirmed;await queueDraft();}
+ if(e.target.id==='metric')$('#trend').innerHTML=chart(e.target.value);
+ }catch(err){fail(err);}});
+main.addEventListener('input',e=>{if(e.target.id==='test-note'&&draft){draft.note=e.target.value;queueDraft();}});
+main.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b||b.disabled||busy)return;try{
+ if(b.dataset.go){render(b.dataset.go);await safeUpdate();return;}if(b.dataset.capture){await startCapture(b.dataset.capture);return;}
+ const action=b.dataset.action;
+ if(action==='manual'){draft??=newDraft();await queueDraft();render('review');}
+ if(action==='discard'){if(!confirm('Discard this unfinished test? Saved history stays.'))return;await writeQueue;await db.remove('meta','draft');draft=null;render('home');await safeUpdate();}
+ if(action==='retry'){$('#gallery').click();}
+ if(b.id==='save-test'){busy=true;b.disabled=true;await writeQueue;validateReading(draft);if(!draft.timingConfirmed)throw Error('Check the kit timing before saving.');const record={...draft,source:draft.photo?'photo_manual_confirmed':'manual',appVersion:BUILD,readerVersion:READER_VERSION,confirmedAt:Date.now()};await db.saveTest(record);draft=null;await refresh();render('home');message('Test saved. Nice work, swamp keeper.');await safeUpdate();}
+ if(action==='start-challenge'){if(settings.movedInAt)throw Error('Fishless challenges are unavailable after move-in.');if(!$('#empty-tank').checked)throw Error('Confirm that this tank has no animals in it.');const r=latestConfirmed(readings);if(!r||Date.now()-r.createdAt>HOUR||r.createdAt>Date.now()||r.ammonia<2||r.ammonia==null||r.nitrite!==0||r.temp==null||r.temp<60||r.temp>65)throw Error('Save a fresh post-dose test with at least 2 ppm ammonia, zero nitrite, and 60–65°F temperature.');settings.challenge={readingId:r.id,emptyTank:true,startedAt:r.createdAt};settings.homeChecks=null;await saveSettings();render('challenge');}
+ if(action==='cancel-challenge'){if(!confirm('End this challenge attempt? Its test records will stay.'))return;settings.challenge=null;await saveSettings();render('challenge');}
+ if(action==='home-checks'){if(!$('#home-checks').checked)throw Error('Check the final home items first.');settings.homeChecks=Date.now();await saveSettings();render('challenge');}
+ if(action==='move'){if(!status(readings,settings,events).ready)throw Error('Complete the remaining checks first.');const t=new Date($('#move-date').value+'T12:00:00').getTime();if(!Number.isFinite(t)||t>Date.now()+12*HOUR)throw Error('Choose the actual move-in date.');settings.movedInAt=t;await saveSettings();await db.put('events',{id:crypto.randomUUID(),kind:'move_in',createdAt:t,note:'Rex has entered the swamp.'});await refresh();render('home');message('Welcome home, Rex. ♥');}
+ if(action==='save-care'){const kind=$('#event-kind').value,time=new Date($('#event-time').value).getTime();if(!Number.isFinite(time)||time>Date.now()+60000)throw Error('Choose a valid time.');if(settings.movedInAt&&kind==='dose')throw Error('Do not dose ammonia in Rex’s occupied tank.');await db.put('events',{id:crypto.randomUUID(),kind,createdAt:time,note:$('#event-note').value.trim()});await refresh();render('home');message('Care note saved.');}
+ if(action==='memory')$('#memory-photo').click();
+ if(action==='undo-move'){if(!confirm('Undo the move-in marker and return to cycling mode?'))return;settings.movedInAt=null;settings.homeChecks=null;await saveSettings();render('home');}
+ if(action==='water-math'){const raw=['#gallons','#wc-current','#wc-source','#wc-target'].map(s=>$(s).value);if(raw.some(v=>v===''))throw Error('Enter the water volume and all three nitrate values.');const [g,c,s,t]=raw.map(Number);if(![g,c,s,t].every(Number.isFinite)||g<=0||Math.min(c,s,t)<0)throw Error('Check the values.');if(t>=c){$('#water-result').textContent='No dilution needed for that target.';}else if(s>=t){$('#water-result').textContent='This replacement water cannot bring the tank below that target by dilution alone.';}else{const f=(c-t)/(c-s);$('#water-result').textContent=`Idealized estimate: ${Math.ceil(f*100)}% (about ${(g*f).toFixed(1)} gallons). Condition and temperature-match replacement water; retest afterward.`;}settings.gallons=g;await saveSettings();}
+ if(action==='export')await exportBackup();if(action==='restore'){restoreSettings=$('#restore-settings').checked;$('#restore-file').click();}
+ if(action==='persist'){const kept=await navigator.storage?.persist?.();message(kept?'Persistent storage granted. Keep occasional backups too.':'The browser did not grant persistent storage. Backups are still available.');}
+ if(action==='update'){const reg=await navigator.serviceWorker?.getRegistration();if(!reg)throw Error('Updates are available when opened over HTTPS with service workers supported.');await reg.update();message('Update check finished. Any new build will activate after unfinished work is saved.');}
+ }catch(err){fail(err);}finally{busy=false;if(screen==='review'&&$('#save-test'))$('#save-test').disabled=!draft?.confirmed||!draft?.timingConfirmed;safeUpdate().catch(()=>{});}});
+$('#memory-photo').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;busy=true;try{const photo=await readPhoto(file);await db.put('events',{id:crypto.randomUUID(),createdAt:Date.now(),kind:'memory',note:$('#event-note')?.value?.trim()||'A little Rex moment.',photo:photo.blob});await refresh();render('progress');message('Rex memory saved.');}catch(err){fail(err);}finally{busy=false;}});
+async function dataURL(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsDataURL(blob);});}
+async function exportBackup(){await writeQueue;const serialize=async r=>({...r,photo:r.photo instanceof Blob?await dataURL(r.photo):null});const payload={app:'Swamp Muppet',version:2,exportedAt:new Date().toISOString(),settings,readings:await Promise.all(readings.map(serialize)),events:await Promise.all(events.map(serialize))};const blob=new Blob([JSON.stringify(payload)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='swamp-muppet-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);message('Backup prepared, including saved photos.');}
+function decodePhoto(photo){if(!photo)return null;if(typeof photo!=='string'||photo.length>12*1024*1024||!/^data:image\/(jpeg|png|webp);base64,/.test(photo))throw Error('Backup contains an unsupported photo.');const [head,body]=photo.split(',');const binary=atob(body);return new Blob([Uint8Array.from(binary,c=>c.charCodeAt(0))],{type:head.slice(5,head.indexOf(';'))});}
+$('#restore-file').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;busy=true;try{if(file.size>100*1024*1024)throw Error('This backup is too large to restore on this device.');const data=JSON.parse(await file.text());if(!['Swamp Muppet','Swamp Fish Control Room'].includes(data.app)||![1,2].includes(data.version)||!Array.isArray(data.readings))throw Error('Choose a Swamp Muppet backup.');
+ const rows=data.readings.map(r=>{if(!r||!['string','number'].includes(typeof r.id)||!Number.isFinite(r.createdAt)||r.createdAt<=0||r.createdAt>Date.now()+60000)throw Error('A backup record has an invalid identity or date.');for(const [k,f] of Object.entries(FIELDS))if(r[k]!=null&&!f.values.includes(r[k]))throw Error('A backup reading has an invalid value.');if(r.temp!=null&&(!Number.isFinite(r.temp)||r.temp<32||r.temp>100))throw Error('A backup temperature is invalid.');return {...r,note:String(r.note||'').slice(0,1000),photo:decodePhoto(r.photo),confirmed:data.version===2&&r.confirmed===true,source:data.version===2?r.source:'legacy'};});
+ const restoredEvents=(data.events||[]).map(e=>{if(!e||typeof e.id!=='string'||!Number.isFinite(e.createdAt)||e.createdAt<=0||e.createdAt>Date.now()+60000||!['water_change','feeding','cleaning','filter_reset','dose','memory','move_in'].includes(e.kind))throw Error('A care note is invalid.');return {...e,note:String(e.note||'').slice(0,1000),photo:decodePhoto(e.photo)};});
+ const existing=new Set(readings.map(r=>r.id)),existingEvents=new Set(events.map(r=>r.id));const incoming=rows.filter(r=>!existing.has(r.id)),incomingEvents=restoredEvents.filter(e=>!existingEvents.has(e.id));
+ let importedSettings=null;
+ if(restoreSettings){const source=data.settings||{},m=source.movedInAt;if(m!=null&&(!Number.isFinite(m)||m<=0||m>Date.now()+12*HOUR))throw Error('Backup move-in date is invalid.');const challenge=source.challenge;if(challenge!=null&&(!['string','number'].includes(typeof challenge.readingId)||challenge.emptyTank!==true))throw Error('Backup challenge is invalid.');importedSettings={...settings,gallons:Number(source.gallons)>0?Number(source.gallons):'',movedInAt:m||null,challenge:challenge||null,homeChecks:null};}
+ if(!confirm(`Add ${incoming.length} tests and ${incomingEvents.length} care notes? Existing records stay. ${restoreSettings?'Preferences, move-in date, and challenge will be restored; final checks must be repeated.':'Settings stay unchanged.'}`))return;
+ await db.mergeBackup({readings:incoming,events:incomingEvents,settings:importedSettings});if(importedSettings)settings=importedSettings;await refresh();render('eric');message('Backup merged. Existing history was preserved.');
+ }catch(err){fail(err);}finally{busy=false;}});
+// Persist drafts before activation; no reload in an unfinished form. Coordinate all open tabs.
+async function safeUpdate(){if(!updateWaiting||draft||busy||!['home','progress','eric'].includes(screen))return;await writeQueue;updateWaiting.postMessage({type:'REQUEST_ACTIVATION'});}
+if('serviceWorker'in navigator){navigator.serviceWorker.addEventListener('message',event=>{if(event.data?.type==='CAN_ACTIVATE')event.source?.postMessage({type:'ACTIVATION_VOTE',token:event.data.token,safe:!draft&&!busy&&['home','progress','eric'].includes(screen)});});let reloading=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(reloading)return;reloading=true;location.reload();});}
+async function registerUpdates(){if(!('serviceWorker'in navigator))return;try{const reg=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});const waiting=()=>{if(reg.waiting){updateWaiting=reg.waiting;safeUpdate().catch(()=>{});}};waiting();reg.addEventListener('updatefound',()=>{const installing=reg.installing;installing?.addEventListener('statechange',()=>{if(installing.state==='installed')waiting();});});await reg.update();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){reg.update().catch(()=>{});safeUpdate().catch(()=>{});if(screen==='home')render('home');}});}catch{message('App update check could not finish. It will retry next time you open online.');}}
+function connection(){ $('#connection').textContent=navigator.onLine?'':'Offline · saved tests still work';}window.addEventListener('online',()=>{connection();registerUpdates();});window.addEventListener('offline',connection);
+window.addEventListener('beforeunload',e=>{if(draft||busy||['care','move'].includes(screen)){e.preventDefault();e.returnValue='';}});
+(async()=>{try{settings=await db.initialize();await refresh();draft=(await db.get('meta','draft'))?.value||null;dbReady=true;connection();render('home');await registerUpdates();}catch(e){main.innerHTML='<h2>Your history needs a moment.</h2><p>Close other app tabs and reopen. If browser storage is unavailable, try opening outside private browsing. Do not clear site data.</p>';fail(e);}})();

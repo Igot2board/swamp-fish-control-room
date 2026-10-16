@@ -72,3 +72,12 @@ Private test URL: https://swamp-muppet-eric-phone-test.igot2board.chatgpt.site
 Open in Chrome on Eric's Android while signed into the owning ChatGPT account. This is a separate origin and test history, not the wife's existing GitHub Pages install. The deployment copies the exact candidate's app files; staging provenance is retained outside the served assets. Use it for photo/gallery/retry, editable numbers, Save, layout, and icon checks. A download/update here does not update the production app. The real production v1→v2 transition remains a final owner check.
 
 No production merge/deployment is authorized by this preview. The candidate is ready for the other G's quick regression and Eric's phone pass once the preview deployment reports success.
+
+
+## Phone-test startup repair — rex.5
+
+Eric reported the preview briefly loaded and then showed Chrome ERR_FAILED. Authenticated HTTP probes of the deployed host confirmed `/` returns 200 HTML, `/index.html` returns 307 to `/`, and `/sw.js` and `/version.json` return 200. The worker was caching the followed redirect and replaying it for navigations, which have manual redirect mode. This is a known incompatible response shape for navigation.
+
+The worker now converts same-origin followed redirects to a fresh Response before caching/replaying them, preserving content/status without redirect history. Cross-origin redirects are rejected, so sign-in pages cannot be substituted for the app. First-install controller acquisition no longer forces an immediate reload; existing installed clients still reload on a genuine controller update. IndexedDB and saved photos are untouched.
+
+27 tests pass, including regression coverage for redirected HTML installation/navigation and rejection of cross-origin sign-in HTML. Real Chrome-on-Android confirmation remains Eric's test. Existing failed preview tabs may need closing once so the repaired worker can activate. Production is still unchanged.

@@ -1,4 +1,4 @@
-export const BUILD = '2.0.0-rex.3';
+export const BUILD = '2.0.0-rex.4';
 export const HOUR = 3600000;
 export const FIELDS = {
   ammonia:{label:'Ammonia',unit:'ppm',values:[0,.25,.5,1,2,4,8]},
@@ -62,6 +62,7 @@ export function status(readings,settings,events,now=Date.now()){
     else {result.stage=a===0?'Almost ready':'Cycling';if(a===0)result.title='One step closer to swamp sweet swamp.';result.next='Confirm a zero nitrite reading.';result.detail='Nitrite is still measurable. Keep Rex outside this tank and save the next test when you have it.';}
     return result;
   }
+  if(challenge.state==='passed'&&(a===null||n===null)){result.next='Save a fresh water test.';result.detail='The challenge is recorded. Check ammonia and nitrite again so the current readings are up to date.';return result;}
   if(t!==null&&(t<60||t>65)){result.next='Check the tank temperature.';result.detail='The final checks need cool, stable water around 60–65°F.';return result;}
   if(na!==null&&na>=20){result.next='Plan a water change, then retest.';result.detail='Nitrate is above the move-in target. Finish any running challenge before a water change, or start a fresh challenge afterward.';return result;}
   if(p!==null&&(p<7.2||p>8.4)){result.next='Recheck the pH with the kit.';result.detail='Review the result and water chemistry before move-in. Avoid rapid pH changes.';return result;}
@@ -107,6 +108,11 @@ export function confirmReport(draft){
   const record={...draft,decisions:{...draft.decisions},confirmed:true,timingConfirmed:true};
   for(const k of Object.keys(record.decisions))if(record.decisions[k]==='suggested')record.decisions[k]='accepted';
   validateReading(record);return record;
+}
+export function canSaveReport(draft){
+  if(!draft)return false;
+  const hasValue=Object.entries(FIELDS).some(([k,f])=>f.values.includes(draft[k]))||validNumber(draft.temp)&&draft.temp>=32&&draft.temp<=100;
+  return hasValue&&unresolvedBoundaries(draft).length===0;
 }
 export const STAGES=['Cycling','Almost ready','Final challenge','Move-in'];
 export function progressStages(stage){const current=STAGES.indexOf(stage);return STAGES.map((label,i)=>({label,state:i<current?'done':i===current?'current':''}));}

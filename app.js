@@ -1,4 +1,4 @@
-import {BUILD,FIELDS,HOUR,blankReading,eligible,latestConfirmed,status,preparePhotoReport,unresolvedBoundaries,confirmReport,progressStages} from './model.js';
+import {BUILD,FIELDS,HOUR,blankReading,eligible,latestConfirmed,status,preparePhotoReport,unresolvedBoundaries,confirmReport,canSaveReport,progressStages} from './model.js';
 import * as db from './storage.js';
 import {readPhoto,READER_VERSION} from './reader.js';
 const $=s=>document.querySelector(s),main=$('#main');
@@ -46,7 +46,7 @@ function review(){
  <div class="field-grid report-grid">${['ammonia','nitrite','nitrate','ph'].map(reportField).join('')}${!lowAtTop?reportField('lowPh'):''}<label class="field">Temperature · °F<input id="temperature" type="number" min="32" max="100" step="0.1" inputmode="decimal" placeholder="Not checked" value="${draft.temp??''}"></label></div>
  ${lowAtTop?`<p class="mini">The low-pH test tops out at 7.6, so we’re using the high-range result.</p>`:''}
  <p class="mini">Compare with your physical card after the kit’s mixing and waiting times. By saving, you’re confirming the readings shown.</p>
- <button type="button" class="action" id="save-test" ${unresolvedBoundaries(draft).length?'disabled':''}>Matches my card — save</button>
+ <button type="button" class="action" id="save-test" ${!canSaveReport(draft)?'disabled':''}>Matches my card — save</button>
  <details class="details"><summary>Test time &amp; a little note</summary><label class="field">When was this test?<input type="datetime-local" id="test-time" value="${Number.isFinite(draft.createdAt)?localTime(draft.createdAt):''}" required><small>For an older photo, use the time the test was actually read.</small></label><label class="field">A note, if you like<textarea id="test-note" maxlength="1000" rows="2" placeholder="Water change, filter work, muppet business…">${esc(draft.note)}</textarea></label>${lowAtTop?reportField('lowPh'):''}</details>
  <details class="details"><summary>Need help with the test?</summary><p>Follow your kit’s printed instructions, including its shaking and waiting times. Use a white background and even light. Keep flash and reflections off the liquid.</p><a href="https://www.apifishcare.com/products/api-freshwater-master-test-kit" target="_blank" rel="noopener">API kit information</a></details>
  <button type="button" class="text-action" data-action="discard">Discard unfinished test</button>`;
@@ -80,10 +80,10 @@ main.addEventListener('change',async e=>{try{
  else if(el.id==='temperature'){draft.temp=el.value===''?null:Number(el.value);draft.confirmed=false;}
  else if(el.id==='test-time'){draft.createdAt=new Date(el.value).getTime();if(!Number.isFinite(draft.createdAt))draft.createdAt=null;}
  else if(el.id==='test-note')draft.note=el.value;
- $('#save-test').disabled=unresolvedBoundaries(draft).length>0;await queueDraft();}
+ $('#save-test').disabled=!canSaveReport(draft);await queueDraft();}
  if(e.target.id==='metric')$('#trend').innerHTML=chart(e.target.value);
  }catch(err){fail(err);}});
-main.addEventListener('input',e=>{if(e.target.id==='test-note'&&draft){draft.note=e.target.value;queueDraft();}});
+main.addEventListener('input',e=>{if(!draft)return;if(e.target.id==='test-note'){draft.note=e.target.value;queueDraft();}if(e.target.id==='temperature'){draft.temp=e.target.value===''?null:Number(e.target.value);draft.confirmed=false;$('#save-test').disabled=!canSaveReport(draft);queueDraft();}});
 main.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b||b.disabled||busy)return;try{
  if(b.dataset.go){render(b.dataset.go);await safeUpdate();return;}if(b.dataset.capture){await startCapture(b.dataset.capture);return;}
  if(b.dataset.match){const k=b.dataset.match,v=Number(b.dataset.number);if(!FIELDS[k]?.values.includes(v))throw Error('Choose a listed reading.');draft[k]=v;draft.decisions??={};draft.decisions[k]=v===draft.analysis?.tubes?.find(t=>t.possibleKey===k)?.research?.candidates?.[0]?.value?'accepted':'corrected';draft.confirmed=false;await queueDraft();render('review');return;}
@@ -104,7 +104,7 @@ main.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b
  if(action==='export')await exportBackup();if(action==='restore'){restoreSettings=$('#restore-settings').checked;$('#restore-file').click();}
  if(action==='persist'){const kept=await navigator.storage?.persist?.();message(kept?'Persistent storage granted. Keep occasional backups too.':'The browser did not grant persistent storage. Backups are still available.');}
  if(action==='update'){const reg=await navigator.serviceWorker?.getRegistration();if(!reg)throw Error('Updates are available when opened over HTTPS with service workers supported.');await reg.update();message('Update check finished. Any new build will activate after unfinished work is saved.');}
- }catch(err){fail(err);}finally{busy=false;if(screen==='review'&&$('#save-test'))$('#save-test').disabled=!!draft&&unresolvedBoundaries(draft).length>0;safeUpdate().catch(()=>{});}});
+ }catch(err){fail(err);}finally{busy=false;if(screen==='review'&&$('#save-test'))$('#save-test').disabled=!canSaveReport(draft);safeUpdate().catch(()=>{});}});
 $('#memory-photo').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;busy=true;try{const photo=await readPhoto(file);await db.put('events',{id:crypto.randomUUID(),createdAt:Date.now(),kind:'memory',note:$('#event-note')?.value?.trim()||'A little Rex moment.',photo:photo.blob});await refresh();render('progress');message('Rex memory saved.');}catch(err){fail(err);}finally{busy=false;}});
 async function dataURL(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(r.error);r.readAsDataURL(blob);});}
 async function exportBackup(){await writeQueue;const serialize=async r=>({...r,photo:r.photo instanceof Blob?await dataURL(r.photo):null});const payload={app:'Swamp Muppet',version:2,exportedAt:new Date().toISOString(),settings,readings:await Promise.all(readings.map(serialize)),events:await Promise.all(events.map(serialize))};const blob=new Blob([JSON.stringify(payload)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='swamp-muppet-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);message('Backup prepared, including saved photos.');}

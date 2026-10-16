@@ -45,3 +45,30 @@ Tube order is a small contextual line, not a required task. **Different order?**
 6. Test the installed v1→v2 transition and a later v2 update with an unfinished draft. Existing records/photos must survive. No clearing site data or reinstalling to force an update.
 
 Future post-move-in routine tuning, including the 24-hour dashboard freshness wording, stays separate from these audit fixes.
+
+
+## Second-audit cleanup — rex.4 (2026-10-15)
+
+The second audit accepted all six prior fixes. Both remaining cleanup items are fixed:
+
+- A passed challenge with stale or missing current ammonia/nitrite now explicitly asks for a fresh water test. Historical challenge success cannot stand in for current chemistry.
+- Save is disabled on an empty manual or unreadable-photo report. Zero counts as an entered measurement; a valid temperature alone also enables Save. Temperature input updates the button immediately. Zero-versus-trace checks are still enforced.
+
+25 automated tests pass, including the new stale/missing-current cases and empty-report/temperature UI behavior. Reader calibration and the prior photo results are unchanged.
+
+### Locked icon
+
+The exact selected 1254×1254 source was retrieved and its SHA-256 verified:
+`4deff47496d446ea76df529374201198b7ec33e552fc9e8116fc0e30e5321b98`.
+No regeneration or art changes. Library original: `/Phoenix Aquatic Systems/PHOENIX_AQUATIC_SYSTEMS_SWAMP_MUPPET_SELECTED_ICON.png`.
+
+Production assets now use versioned names: `rex-phoenix-v1-192.png`, `rex-phoenix-v1-512.png`, and separate `rex-phoenix-v1-maskable-512.png`. The maskable asset places the source at 368px on a 512px dark canvas with 72px padding. Rex, gills, Phoenix, and the circular reactor were visually checked inside the central safe circle; decorative tile corners may be masked. Normal assets use purpose `any`; padded asset uses only `maskable`. Manifest, favicon/apple-touch link, SW assets, and release hash inputs were updated together. `scripts/prepare-icons.py` reproduces them and rejects any other source hash. Original full-size art is not shipped.
+
+The manifest keeps the existing id/start URL/scope. Launcher-image refresh is controlled by Android/browser/launcher caching; new filenames help but immediate icon replacement is not promised. Back up records before considering any remove/re-add step; do not clear site data to force an icon change.
+
+### Isolated phone test
+
+Private test URL: https://swamp-muppet-eric-phone-test.igot2board.chatgpt.site
+Open in Chrome on Eric's Android while signed into the owning ChatGPT account. This is a separate origin and test history, not the wife's existing GitHub Pages install. The deployment copies the exact candidate's app files; staging provenance is retained outside the served assets. Use it for photo/gallery/retry, editable numbers, Save, layout, and icon checks. A download/update here does not update the production app. The real production v1→v2 transition remains a final owner check.
+
+No production merge/deployment is authorized by this preview. The candidate is ready for the other G's quick regression and Eric's phone pass once the preview deployment reports success.

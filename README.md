@@ -40,6 +40,12 @@ The installed app checks for code changes at startup and foregrounding while onl
 
 See `docs/CARE_RULES.md`. Final challenge uses a documented 2 ppm / within-24-hour protocol. The older 1 ppm handoff trial is progress evidence only. App time limits (24-hour current readings, 7-day challenge evidence) are conservative product choices, not validated biological expiration times. Move-in is explicitly recorded by the keeper; after that, fishless dosing controls are unavailable.
 
+## Phone preview
+
+Private isolated phone test: https://swamp-muppet-eric-phone-test.igot2board.chatgpt.site
+
+Use Eric’s owning ChatGPT account. Test data stays separate from the production GitHub Pages origin. This does not replace the final installed v1→v2 transition check. Selected Rex/Phoenix launcher art is integrated with separate normal and padded maskable assets. Android controls launcher-image refresh timing.
+
 ## Before production
 
 See `docs/AUDIT_RESPONSE.md` for the six audit fixes and `docs/VALIDATION.md` for remaining checks: real Android camera/gallery, offline reopening, actual v1→v2 service-worker transition, and physical-card comparisons remain required. Software tests are not phone or measurement validation.

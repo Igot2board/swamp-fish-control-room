@@ -65,3 +65,8 @@ The score blends normalized-color and raw Lab distance to reduce exposure sensit
 This section supersedes the older per-estimate acceptance UI described above. See `AUDIT_RESPONSE.md` for the item-by-item disposition and phone pass. The report now preloads provisional values; the keeper edits exceptions and confirms once with “Matches my card — save.” Only ammonia/nitrite zero-versus-trace choices need an extra action. Numeric accuracy is still not calibrated.
 
 All six audit items are addressed. The exact additional historical `1000009919.jpg` failure was reproduced with reader 0.2 and is now rejected by 0.3. The eight existing development inputs retain their prior detection outcomes. The new automated suite has 23 passing checks, including one report through correction and save, camera/gallery retry routing, unknown-image fallback, current-chemistry priority, cumulative stage styling, and pH consolidation. Real Android and installed update testing remain pending.
+
+
+## Second audit — rex.4
+
+25 tests pass. Passed-challenge stale/missing chemistry prompts a fresh test. Empty reports cannot save; zero and valid temperature count as entered data. Selected icon source hash is verified, derived assets and release lists match, and the padded icon was visually checked under the maskable safe-circle crop. Private phone preview and remaining actual Android checks are documented in AUDIT_RESPONSE.md.

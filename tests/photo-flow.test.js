@@ -51,8 +51,10 @@ test('keeper reviews one editable report, resolves only the zero boundary, then 
  };
  $('#gallery').files=[new Blob(['photo'],{type:'image/jpeg'})];
  $('#gallery').dispatchEvent(new window.Event('change'));await wait();await wait();
- assert.match($('#main').textContent,/hide-and-seek/);assert.equal($('[data-value="ammonia"]').value,'');
+ assert.equal($('#save-test').disabled,true);assert.match($('#main').textContent,/hide-and-seek/);assert.equal($('[data-value="ammonia"]').value,'');
  assert.ok($('[data-retry="camera"]'));assert.ok($('[data-retry="gallery"]'));
  assert.equal((await db.all('readings')).filter(r=>r.confirmed).length,1);
+ $('#temperature').value='64';$('#temperature').dispatchEvent(new window.Event('input',{bubbles:true}));await wait();assert.equal($('#save-test').disabled,false);
+ $('#temperature').value='';$('#temperature').dispatchEvent(new window.Event('input',{bubbles:true}));await wait();assert.equal($('#save-test').disabled,true);
  db.closeDB();
 });

@@ -52,3 +52,19 @@ test('progress marks every preceding stage complete without marking move-in done
  assert.deepEqual(progressStages('Final challenge').map(s=>s.state),['done','done','current','']);
  assert.deepEqual(progressStages('Move-in').map(s=>s.state),['done','done','done','current']);
 });
+
+test('passed challenge with stale or missing current chemistry asks for a fresh test',()=>{
+ const start=record({createdAt:now-48*HOUR,ammonia:2}),end=record({id:'b',createdAt:now-25*HOUR});
+ const settings={challenge:{readingId:'a',emptyTank:true},homeChecks:now};
+ for(const extra of [[],[record({id:'c',ammonia:0,nitrite:null})],[record({id:'c',ammonia:null,nitrite:0})]]){
+  const s=status([start,end,...extra],settings,[],now);assert.equal(s.challenge.state,'passed');assert.equal(s.ready,false);
+  assert.match(s.next,/fresh water test/i);assert.match(s.detail,/ammonia and nitrite/);
+ }
+});
+test('empty or unresolved reports cannot save, and actual zero and temperature are real entries',async()=>{
+ const {canSaveReport}=await import('../model.js');
+ assert.equal(canSaveReport(blankReading()),false);assert.equal(canSaveReport({...blankReading(),temp:NaN}),false);
+ assert.equal(canSaveReport({...blankReading(),ammonia:0}),true);assert.equal(canSaveReport({...blankReading(),temp:64}),true);
+ const d={...blankReading(),ammonia:0,decisions:{ammonia:'suggested'},analysis:{tubes:[{possibleKey:'ammonia',research:{candidates:[{value:0},{value:.25}]}}]}};
+ assert.equal(canSaveReport(d),false);
+});

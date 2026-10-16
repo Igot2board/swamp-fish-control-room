@@ -1,4 +1,4 @@
-export const BUILD = '2.0.0-rex.2';
+export const BUILD = '2.0.0-rex.3';
 export const HOUR = 3600000;
 export const FIELDS = {
   ammonia:{label:'Ammonia',unit:'ppm',values:[0,.25,.5,1,2,4,8]},
@@ -49,17 +49,26 @@ export function status(readings,settings,events,now=Date.now()){
     if(a>0||n>0){result.next='Ammonia or nitrite needs attention.';result.detail='Recheck promptly with the kit. Use temperature-matched, dechlorinated water for a partial water change and retest. If Rex looks unwell, contact an aquatic/exotics vet.';}
     else if(t!==null&&(t<60||t>65)){result.next='Check the tank temperature.';result.detail='Aim for cool, stable water around 60–65°F. Avoid sudden temperature changes.';}
     else if(na!==null&&na>=20){result.next='Plan a water change, then retest.';result.detail='Use dechlorinated, temperature-matched replacement water. Aim for nitrate below 20 ppm.';}
+    else if(p!==null&&(p<7.2||p>8.4)){result.next='Recheck the pH with the kit.';result.detail='Avoid rapid pH changes. Review the result and water chemistry before adding products.';}
     else if(a===0&&n===0&&na!==null&&t!==null){result.next='Keep up the good care.';result.detail='These recent readings are on track. Check the temperature and remove visible waste today.';}
     else {result.next='Time for a fresh water check.';result.detail='Missing or older readings stay unknown until you test again.';}
-    if(p!==null&&(p<7.2||p>8.4)){result.next='Recheck the pH with the kit.';result.detail='Avoid rapid pH changes. Review the result and water chemistry before adding products.';}
     return result;
   }
+  if(['running','passed'].includes(challenge.state)||a===0&&n===0)result.stage='Final challenge';
+  else if(a===0&&n!==null)result.stage='Almost ready';
+  if(a>0||n>0){
+    if(challenge.state==='running'){result.stage='Final challenge';result.next='The challenge is still processing.';result.detail='Ammonia or nitrite is still measurable. Retest by the 24-hour mark; keep Rex outside this tank.';}
+    else if(a>0){result.next='Let the current ammonia dose process.';result.detail='Ammonia is still measurable. Keep Rex outside this tank, avoid another dose, and retest.';}
+    else {result.stage=a===0?'Almost ready':'Cycling';if(a===0)result.title='One step closer to swamp sweet swamp.';result.next='Confirm a zero nitrite reading.';result.detail='Nitrite is still measurable. Keep Rex outside this tank and save the next test when you have it.';}
+    return result;
+  }
+  if(t!==null&&(t<60||t>65)){result.next='Check the tank temperature.';result.detail='The final checks need cool, stable water around 60–65°F.';return result;}
+  if(na!==null&&na>=20){result.next='Plan a water change, then retest.';result.detail='Nitrate is above the move-in target. Finish any running challenge before a water change, or start a fresh challenge afterward.';return result;}
+  if(p!==null&&(p<7.2||p>8.4)){result.next='Recheck the pH with the kit.';result.detail='Review the result and water chemistry before move-in. Avoid rapid pH changes.';return result;}
   if(gates.every(g=>g.pass)){result.ready=true;result.stage='Move-in';result.title="Rex's new home is nearly his.";result.next='Final checks complete. Record move-in when it happens.';result.detail='Only mark Rex home after you actually move him.';}
   else if(challenge.state==='running'){result.stage='Final challenge';result.next='Retest by the 24-hour mark.';result.detail='Record ammonia, nitrite, and temperature. Log any water change, extra dose, or filter replacement.';}
   else if(challenge.state==='passed'){result.stage='Final challenge';result.next='Finish the water and home checks.';result.detail='Check nitrate, temperature, and pH; confirm hides, gentle flow, and a suitable floor.';}
   else if(a===0&&n===0){result.stage='Final challenge';result.next='Prepare the empty-tank final challenge.';result.detail='The challenge screen explains what evidence to record. Rex must still be outside this tank.';}
-  else if(a===0&&n!==null){result.stage='Almost ready';result.title='One step closer to swamp sweet swamp.';result.next='Confirm a zero nitrite reading.';result.detail='Nitrite is still measurable. Save the next test when you have it.';}
-  else if(a!==null&&a>0){result.next='Let the current ammonia dose process.';result.detail='Avoid adding another dose while ammonia remains measurable; follow your cycling plan and retest.';}
   return result;
 }
 export const SEEDS = [
@@ -74,15 +83,30 @@ export const SEEDS = [
  ['2026-10-15',0,.25,40,8,'Nitrite about 0.25–0.5 ppm; photo interpretation, not a verified measurement.']
 ].map(([date,ammonia,nitrite,nitrate,ph,note])=>({id:'seed-'+date,createdAt:Date.parse(date+'T12:00:00-05:00'),ammonia,nitrite,nitrate,ph,temp:null,lowPh:null,note,confirmed:false,source:'chat_seeded',approximate:true}));
 
-export function acceptSuggestion(draft,key){
-  if(!draft.layoutConfirmed)throw Error('Check the tube order first.');
-  const suggestion=draft.analysis?.tubes?.find(t=>t.possibleKey===key)?.research;
-  const value=suggestion?.candidates?.[0]?.value;
-  if(!FIELDS[key]?.values.includes(value))throw Error('No readable estimate for this test. Choose a value from the card.');
-  draft[key]=value;draft.decisions??={};draft.decisions[key]='accepted';draft.confirmed=false;
-  return value;
+// Estimates populate the editable report only. Nothing is confirmed until the save action.
+export function preparePhotoReport(draft){
+  if(draft.reportVersion===1)return draft;
+  draft.decisions??={};draft.confirmed=false;draft.timingConfirmed=false;
+  const tubes=draft.analysis?.tubes||[];
+  const high=tubes.find(t=>t.possibleKey==='ph')?.research?.candidates?.[0];
+  for(const t of tubes){
+    const k=t.possibleKey,v=t.research?.candidates?.[0]?.value;
+    if(!FIELDS[k]?.values.includes(v))continue;
+    if(k==='lowPh'&&v===7.6&&high){if(draft.decisions[k]!=='corrected')draft[k]=null;continue;}
+    if(draft[k]==null&&!draft.decisions[k]){draft[k]=v;draft.decisions[k]='suggested';}
+  }
+  draft.reportVersion=1;return draft;
 }
-export function declineSuggestion(draft,key){
-  if(!FIELDS[key])throw Error('Unknown test.');
-  draft[key]=null;draft.decisions??={};draft.decisions[key]='declined';draft.confirmed=false;
+export function unresolvedBoundaries(draft){
+  return (draft.analysis?.tubes||[]).filter(t=>['ammonia','nitrite'].includes(t.possibleKey)&&
+    t.research?.candidates?.some(c=>c.value===0)&&t.research?.candidates?.some(c=>c.value>0)&&
+    draft.decisions?.[t.possibleKey]==='suggested');
 }
+export function confirmReport(draft){
+  if(unresolvedBoundaries(draft).length)throw Error('Zero or a trace? Tap the match on your card for the highlighted test.');
+  const record={...draft,decisions:{...draft.decisions},confirmed:true,timingConfirmed:true};
+  for(const k of Object.keys(record.decisions))if(record.decisions[k]==='suggested')record.decisions[k]='accepted';
+  validateReading(record);return record;
+}
+export const STAGES=['Cycling','Almost ready','Final challenge','Move-in'];
+export function progressStages(stage){const current=STAGES.indexOf(stage);return STAGES.map((label,i)=>({label,state:i<current?'done':i===current?'current':''}));}

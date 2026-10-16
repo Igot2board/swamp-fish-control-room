@@ -58,3 +58,10 @@ The detector now has a shared-liquid-band pass that tolerates narrow glare strip
 The score blends normalized-color and raw Lab distance to reduce exposure sensitivity, retaining more brightness weight for ammonia. Fully white, dark, or neutral unusable samples still abstain. Single-channel saturation is no longer treated as the same thing as white glare. No score is presented as a confidence percentage. This heuristic is not in-frame chart registration and can be wrong; adjacent candidates are visible so the keeper can compare the physical chart. The latest supplied photo produces ammonia 0 (alternative 0.25), nitrite 0.25 (alternative 0.5), nitrate 20 (alternative 40), high pH 8.2 (alternative 8.0). These are software outputs, not independently verified concentrations.
 
 16 targeted tests now pass, including acceptance/decline and non-bypass of final confirmation. Actual Android and held-out measurement checks remain open.
+
+
+## Audit follow-up — rex.3 / reader 0.3 (2026-10-15)
+
+This section supersedes the older per-estimate acceptance UI described above. See `AUDIT_RESPONSE.md` for the item-by-item disposition and phone pass. The report now preloads provisional values; the keeper edits exceptions and confirms once with “Matches my card — save.” Only ammonia/nitrite zero-versus-trace choices need an extra action. Numeric accuracy is still not calibrated.
+
+All six audit items are addressed. The exact additional historical `1000009919.jpg` failure was reproduced with reader 0.2 and is now rejected by 0.3. The eight existing development inputs retain their prior detection outcomes. The new automated suite has 23 passing checks, including one report through correction and save, camera/gallery retry routing, unknown-image fallback, current-chemistry priority, cumulative stage styling, and pH consolidation. Real Android and installed update testing remain pending.

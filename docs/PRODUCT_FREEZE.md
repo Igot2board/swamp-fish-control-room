@@ -15,4 +15,4 @@ Owner: Eric. Primary user: his wife. Axolotl: Rex, dark colored and young.
 - Technical controls, backup, provenance, experimental analysis, and calculator live in Eric Mode.
 - Exact care rules and numeric photo-reader capability were deliberately not frozen before validation.
 
-The implementation does not claim the mockup's illustrated sample is a real reader. Eric explicitly requested best-effort estimates with accept/decline on 2026-10-15. The normal flow now offers provisional suggestions without any accuracy claim, and requires keeper acceptance or correction plus final confirmation.
+The implementation does not claim the mockup's illustrated sample is a real reader. Eric explicitly requested best-effort estimates with accept/decline on 2026-10-15. The normal flow offers provisional suggestions without an accuracy claim. Following the owner audit, one editable report and one “Matches my card — save” action replace the per-field approvals and repeated checkboxes. Zero-versus-trace ammonia/nitrite requires one focused choice; technical detail stays in Eric Mode.

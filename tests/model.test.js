@@ -8,4 +8,47 @@ test('1 ppm trial, old checkbox, and late samples cannot pass',()=>{for(const st
 test('real linked challenge passes, interventions before endpoint invalidate it',()=>{const start=record({ammonia:2,createdAt:now-24*HOUR}),end=record({id:'b'}),ch={readingId:'a',emptyTank:true};assert.equal(challengeResult(ch,[start,end],[],now).state,'passed');assert.equal(challengeResult(ch,[start,end],[{kind:'water_change',createdAt:now-HOUR}],now).state,'interrupted');assert.equal(challengeResult(ch,[start,end],[{kind:'water_change',createdAt:now+HOUR}],now+2*HOUR).state,'passed');assert.equal(status([start,end],{challenge:ch,homeChecks:now},[],now).ready,true);});
 test('cold, hot, missing, future, and stale readings cannot authorize move-in',()=>{for(const extra of [{temp:null},{temp:45},{temp:70},{ph:null},{nitrate:20},{createdAt:now-25*HOUR},{createdAt:now+HOUR}]){const r=record(extra);assert.equal(status([r],{homeChecks:now},[],now).ready,false);}assert.throws(()=>validateReading(record({createdAt:now+HOUR})),/valid test date/);});
 test('occupied tank never presents fishless dosing',()=>{for(const r of [record(),record({ammonia:1}),record({nitrite:2}),record({temp:70}),record({nitrate:80})]){const s=status([r],{movedInAt:now-24*HOUR},[],now);assert.equal(s.stage,'Home');assert.doesNotMatch(s.next+s.detail,/dose|challenge/i);}});
-test('suggestions require order check and acceptance never bypasses save confirmation',async()=>{const {acceptSuggestion,declineSuggestion}=await import('../model.js');const d={...blankReading(),createdAt:now,analysis:{tubes:[{possibleKey:'nitrite',research:{candidates:[{value:.25}]}}]}};assert.throws(()=>acceptSuggestion(d,'nitrite'),/order/);d.layoutConfirmed=true;acceptSuggestion(d,'nitrite');assert.equal(d.nitrite,.25);assert.equal(d.confirmed,false);assert.throws(()=>validateReading(d),/Check your entered/);declineSuggestion(d,'nitrite');assert.equal(d.nitrite,null);assert.equal(d.decisions.nitrite,'declined');assert.throws(()=>acceptSuggestion(d,'ammonia'),/No readable/);});
+test('current ammonia and nitrite override a previously passed challenge',()=>{
+ const start=record({ammonia:2,createdAt:now-24*HOUR}),end=record({id:'b',createdAt:now-HOUR}),settings={challenge:{readingId:'a',emptyTank:true},homeChecks:now};
+ for(const extra of [{ammonia:.25},{nitrite:.25}]){
+  const s=status([start,end,record({id:'c',...extra})],settings,[],now);
+  assert.equal(s.challenge.state,'passed');assert.equal(s.ready,false);
+  assert.match(s.detail,/still measurable/);assert.doesNotMatch(s.next,/Finish the water|Final checks complete/);
+ }
+});
+test('current advice priority is ammonia/nitrite, temperature, nitrate, then pH',()=>{
+ for(const movedInAt of [undefined,now-HOUR]){
+  const settings={movedInAt};
+  let s=status([record({ammonia:1,nitrite:1,temp:70,nitrate:80,ph:8.8})],settings,[],now);
+  assert.match(s.next,/ammonia|nitrite/i);assert.doesNotMatch(s.next,/pH/);
+  s=status([record({temp:70,nitrate:80,ph:8.8})],settings,[],now);assert.match(s.next,/temperature/);
+  s=status([record({nitrate:80,ph:8.8})],settings,[],now);assert.match(s.next,/water change/);
+  s=status([record({ph:8.8})],settings,[],now);assert.match(s.next,/pH/);
+ }
+});
+test('photo report preloads suggestions, keeps uncertainty explicit and requires one final confirmation',async()=>{
+ const {preparePhotoReport,unresolvedBoundaries,confirmReport,eligible}=await import('../model.js');
+ const tubes=[['ammonia',[0,.25]],['nitrite',[.25,.5]],['nitrate',[20,40]],['ph',[8.2,8]],['lowPh',[7.6,7.2]]].map(([possibleKey,values])=>({possibleKey,research:{candidates:values.map(value=>({value}))}}));
+ const d=preparePhotoReport({...blankReading(),createdAt:now,analysis:{tubes},photo:{}});
+ assert.equal(d.ammonia,0);assert.equal(d.nitrite,.25);assert.equal(d.ph,8.2);assert.equal(d.lowPh,null);
+ assert.equal(d.confirmed,false);assert.equal(eligible(d),false);assert.throws(()=>confirmReport(d),/Zero or a trace/);
+ assert.deepEqual(unresolvedBoundaries(d).map(t=>t.possibleKey),['ammonia']);
+ d.decisions.ammonia='accepted';d.nitrate=40;d.decisions.nitrate='corrected';
+ const saved=confirmReport(d);assert.equal(saved.confirmed,true);assert.equal(saved.timingConfirmed,true);assert.equal(saved.nitrite,.25);assert.equal(saved.nitrate,40);
+ assert.equal(saved.decisions.nitrite,'accepted');assert.equal(saved.decisions.nitrate,'corrected');assert.equal(d.confirmed,false);
+ preparePhotoReport(d);assert.equal(d.nitrate,40);assert.equal(d.decisions.nitrate,'corrected');
+});
+test('unreadable fields stay blank, rejected estimates stay blank, manual input still saves',async()=>{
+ const {preparePhotoReport,confirmReport}=await import('../model.js');
+ const d=preparePhotoReport({...blankReading(),createdAt:now,analysis:{tubes:[]}});
+ assert.equal(d.ammonia,null);assert.throws(()=>confirmReport(d),/at least one/);
+ d.nitrite=.5;assert.equal(confirmReport(d).nitrite,.5);
+ const old=preparePhotoReport({...blankReading(),createdAt:now,decisions:{nitrite:'declined'},analysis:{tubes:[{possibleKey:'nitrite',research:{candidates:[{value:.25}]}}]}});
+ assert.equal(old.nitrite,null);
+});
+test('missing ammonia does not earn the Almost ready stage',()=>{assert.equal(status([record({ammonia:null,nitrite:.25})],{},[],now).stage,'Cycling');});
+test('progress marks every preceding stage complete without marking move-in done',async()=>{
+ const {progressStages}=await import('../model.js');
+ assert.deepEqual(progressStages('Final challenge').map(s=>s.state),['done','done','current','']);
+ assert.deepEqual(progressStages('Move-in').map(s=>s.state),['done','done','done','current']);
+});

@@ -4,7 +4,7 @@ Rex's world, made for one keeper. A **Phoenix Aquatic Systems** PWA, using the e
 
 ## Build status
 
-The approved Rex design is implemented on the v2 branch. This is a reviewable candidate, not a phone-verified production release. Photo estimates are available in “Rex’s water report.” The keeper checks the detected tube order, accepts each estimate with “Looks right” or chooses a different value, then confirms and saves. Estimates are provisional, not calibrated measurements. Unreadable images leave values blank; manual entry remains available. Photos stay local.
+The approved Rex design is implemented on the v2 branch. This is a reviewable candidate, not a phone-verified production release. Photo estimates are available in “Rex’s water report.” Estimates appear in one editable report. The keeper changes only what looks wrong, then taps “Matches my card — save.” Only an ammonia/nitrite zero-versus-trace boundary needs a separate choice. Tube order is shown with a “Different order?” escape to manual entry; there is no order checkbox. Estimates are provisional, not calibrated measurements. Unreadable images leave values blank; manual entry remains available. Photos stay local.
 
 ## Run and verify
 
@@ -42,4 +42,4 @@ See `docs/CARE_RULES.md`. Final challenge uses a documented 2 ppm / within-24-ho
 
 ## Before production
 
-See `docs/VALIDATION.md`: real Android camera/gallery, offline reopening, actual v1→v2 service-worker transition, and physical-card comparisons remain required. Software tests are not phone or measurement validation.
+See `docs/AUDIT_RESPONSE.md` for the six audit fixes and `docs/VALIDATION.md` for remaining checks: real Android camera/gallery, offline reopening, actual v1→v2 service-worker transition, and physical-card comparisons remain required. Software tests are not phone or measurement validation.

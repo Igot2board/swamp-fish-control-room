@@ -1,5 +1,5 @@
 // Local-only research reader. Geometry is heuristic; numeric estimates are never confirmed data.
-export const READER_VERSION='rex-local-0.2';
+export const READER_VERSION='rex-local-0.3';
 export const NUMERIC_READER_VALIDATED=false;
 const palettes={lowPh:[[6,[235,218,81]],[6.4,[204,217,138]],[6.6,[165,203,157]],[6.8,[125,190,170]],[7,[100,178,178]],[7.2,[74,163,174]],[7.6,[50,131,164]]],ammonia:[[0,[242,220,59]],[.25,[200,217,90]],[.5,[155,198,92]],[1,[104,173,100]],[2,[61,140,97]],[4,[31,108,93]],[8,[21,80,71]]],nitrite:[[0,[135,200,202]],[.25,[173,145,202]],[.5,[155,115,185]],[1,[173,82,158]],[2,[142,63,120]],[5,[107,49,94]]],nitrate:[[0,[230,210,75]],[5,[228,173,69]],[10,[224,125,72]],[20,[220,93,79]],[40,[206,63,80]],[80,[170,49,80]],[160,[124,41,67]]],ph:[[7.4,[194,138,67]],[7.8,[218,125,71]],[8,[201,118,105]],[8.2,[174,93,114]],[8.4,[143,79,131]],[8.8,[110,70,125]]]};
 function lab(rgb){let [r,g,b]=rgb.map(v=>v/255).map(v=>v>.04045?((v+.055)/1.055)**2.4:v/12.92);const f=v=>v>.008856?Math.cbrt(v):7.787*v+16/116;const x=f((r*.4124+g*.3576+b*.1805)/.95047),y=f(r*.2126+g*.7152+b*.0722),z=f((r*.0193+g*.1192+b*.9505)/1.08883);return [116*y-16,500*(x-y),200*(y-z)];}
@@ -54,17 +54,18 @@ export function analyzePixels(image){
  boxes=boxes.filter(b=>b.width>w*.009&&b.width<w*.13&&b.height/b.width>2&&b.x>w*.03&&b.x+b.width<w*.97);
  // Do not infer test identities from count alone. A candidate row must also have
  // the expected hue order, near-even spacing, and a shared liquid base.
- let group=[],bestScore=Infinity;
+ let group=[],bestScore=Infinity;const triples=[],evidence=[...boxes];
  function choose(n,start=0,chosen=[]){if(chosen.length===n){
   const cats=chosen.map(b=>b.cat),expected=n===5?[[1],[2,3],[4],[1,2],[3]]:[[4],[1,2],[3]];
   if(cats.some((c,i)=>!expected[i].includes(c)))return;
   const centers=chosen.map(b=>b.x+b.width/2),gaps=centers.slice(1).map((x,i)=>x-centers[i]),mean=gaps.reduce((s,v)=>s+v,0)/gaps.length;
   if(Math.min(...gaps)<w*.035||Math.max(...gaps)/Math.min(...gaps)>1.8)return;
   const ends=chosen.map(b=>b.y+b.height);if(Math.max(...ends)-Math.min(...ends)>h*.16)return;
-  const score=gaps.reduce((s,g)=>s+Math.abs(g-mean)/mean,0)+(n===3?.4:0);
-  if(score<bestScore){bestScore=score;group=chosen;}return;
+  const score=gaps.reduce((s,g)=>s+Math.abs(g-mean)/mean,0);
+  if(n===3)triples.push({chosen,score});
+  else if(score<bestScore){bestScore=score;group=chosen;}return;
  }for(let i=start;i<boxes.length;i++)choose(n,i+1,[...chosen,boxes[i]]);}
- if(boxes.length<=30){choose(5);if(!group.length)choose(3);}
+ if(boxes.length<=30){choose(5);choose(3);}
  // A second pass tolerates narrow flash stripes splitting otherwise usable tubes.
  // It searches shared liquid bands, not hardcoded image coordinates or file names.
  if(group.length<5){
@@ -78,9 +79,27 @@ export function analyzePixels(image){
     const prev=bands.at(-1);if(prev&&prev.cat===cat&&x<=prev.x+prev.width+2)prev.width=x-prev.x+1;else bands.push({x,y:y0,width:1,height:bh,cat});
    }
    boxes=bands.filter(b=>b.width>w*.012&&b.width<w*.10&&b.x>w*.04&&b.x+b.width<w*.96&&b.height/b.width>1.5);
-   if(boxes.length<=25){choose(5);if(!group.length)choose(3);}
+   evidence.push(...boxes);
+   if(boxes.length<=25){choose(5);choose(3);}
   }
   boxes=original;
+ }
+
+ // A partial five-tube row must never become a chemistry-only row just because
+ // the three rightmost tubes were easier to find. Check all passes for extra
+ // tube-shaped color in the same liquid band before accepting any triple.
+ if(!group.length){
+  for(const {chosen} of triples.sort((a,b)=>a.score-b.score)){
+   const centers=chosen.map(b=>b.x+b.width/2),gap=(centers[2]-centers[0])/2;
+   const base=median(chosen.map(b=>b.y+b.height)),height=median(chosen.map(b=>b.height));
+   const extra=evidence.some(b=>{
+    const center=b.x+b.width/2;
+    if(centers.some(x=>Math.abs(x-center)<gap*.40))return false;
+    const overlap=Math.max(0,Math.min(base,b.y+b.height)-Math.max(base-height,b.y));
+    return overlap>=height*.55&&Math.abs(b.y+b.height-base)<h*.18;
+   });
+   if(!extra){group=chosen;break;}
+  }
  }
 
  const tubes=group.map(b=>({...b,sample:sampleRegion(image,{x:b.x+b.width*.25,y:b.y+b.height*.22,width:b.width*.5,height:b.height*.52})}));

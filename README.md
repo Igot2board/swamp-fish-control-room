@@ -1,51 +1,51 @@
-# Swamp Fish Control Room
+# Swamp Muppet
 
-A phone-first installable PWA for an axolotl tank: API liquid-test logging, plain-English cycling verdicts, photo-assisted color matching, offline history, trend charts, a water-change calculator, and a 24-hour biofilter challenge timer.
+Rex's world, made for one keeper. A **Phoenix Aquatic Systems** PWA, using the existing GitHub Pages address and application identity.
 
-## What makes it useful
+## Build status
 
-- **Simple-first Quick Check:** tap ammonia, nitrite, nitrate, pH, and temperature; get a big GO/HOLD verdict and next steps.
-- **Photo Assist:** take/select a test photo, optionally white-balance from the API card, tap the center of a tube, and get a color-based estimate + confidence. It never silently replaces the human reading.
-- **Persistent offline history:** readings and optional compressed photos are stored in IndexedDB on the phone.
-- **Trend graph:** ammonia, nitrite, nitrate, pH, and temperature.
-- **24-hour challenge timer:** starts at the ammonia dose and can create an `.ics` calendar event for the retest.
-- **Water-change calculator:** estimates replacement percentage and gallons from current/target nitrate.
-- **Eric Mode:** raw control-room view and stage-by-stage nitrification status.
-- **No account and no cloud:** everything is local to the device unless the user exports a JSON backup.
+The approved Rex design is implemented on the v2 branch. This is a reviewable candidate, not a phone-verified production release. Photo estimates are available in “Rex’s water report.” Estimates appear in one editable report. The keeper changes only what looks wrong, then taps “Matches my card — save.” Only an ammonia/nitrite zero-versus-trace boundary needs a separate choice. Tube order is shown with a “Different order?” escape to manual entry; there is no order checkbox. Estimates are provisional, not calibrated measurements. Unreadable images leave values blank; manual entry remains available. Photos stay local.
 
-## Run locally
+## Run and verify
 
-Service workers need HTTP(S), not `file://`.
+No application dependencies, build server, account, analytics, or photo upload. Use any static HTTPS host or localhost for development. Node 22 is used for verification.
 
-```bash
-python -m http.server 8080
+```
+npm ci --ignore-scripts --no-audit --no-fund
+npm run check
+npm test
+node scripts/release.mjs
 ```
 
-Then open `http://localhost:8080`.
+GitHub Actions performs these checks, generates release metadata, and deploys app assets only on main. Pull requests run verification without deployment. Source code, tests, and documentation are excluded from the Pages artifact. Household test photos are never committed.
 
-## Put it on a phone with GitHub Pages
+## Files
 
-1. Create a GitHub repository (for example `swamp-fish-control-room`).
-2. Put these files at the repository root and push to `main`.
-3. In **Settings → Pages**, set the source to **GitHub Actions** if GitHub asks.
-4. The included workflow deploys automatically.
-5. Open the HTTPS Pages URL on the phone.
-6. Android/Chrome: use **Install app** or browser menu → **Add to Home screen**.
-7. iPhone/Safari: **Share → Add to Home Screen**.
+- `app.js`: approved simple interface, camera/gallery inputs, explicit confirmation, history, care notes, photo memories, backup/restore, and update coordination.
+- `model.js`: pure readiness/challenge rules; approximate history and legacy records are not readiness evidence.
+- `storage.js`: IndexedDB v1 → v2 additive migration, atomic writes, resumable drafts, full backup merge.
+- `reader.js`: offline image preparation and conservative research tube detection. No confidence percentages. Estimates require explicit acceptance; they never populate confirmed history on their own.
+- `sw.js`: complete versioned offline shell, release consistency checks, all-client safe activation voting.
+- `scripts/release.mjs`: hashes app assets and worker behavior to generate cache identity.
 
-The manifest and service worker use relative URLs, so the app works from a GitHub Pages repository subpath.
+## Storage and updates
 
-## Photo Assist note
+Database name remains `swamp-fish-control-room`. Version 2 retains the original `readings` store and adds `events` and `meta`. Old rows and their photos are unchanged. Old localStorage preferences and the timer key are left intact. The old timer and checkbox do not constitute validated challenge evidence. Explicit settings import can restore a v2 linked challenge.
 
-The color estimator uses a sampled region of the photo and approximate API palette colors, with optional white-balance calibration. Camera processing, flash, room light, test timing, plastic tubes, and card printing can all shift apparent color. The app intentionally shows confidence and keeps manual confirmation as the source of truth.
+Approximate seed rows have deterministic string IDs and one transaction marker. Missing values remain null. No normal update calls clear or deletes the database. Saving a test and removing its draft are one transaction. Backup includes photo bytes; restore validates first, adds missing IDs atomically, and never replaces existing records. Optional settings restore resets final home checks. Export periodically because device storage is not a cloud backup.
 
-## Data model / privacy
+The installed app checks for code changes at startup and foregrounding while online. A downloaded build waits while a test, care form, or move-in form is open. Every tab must report safe before immediate activation. A v1 client has no handshake handler, so its first transition may need all old app windows closed and reopened; do not clear storage or reinstall. Subsequent v2 updates coordinate automatically. No closed/offline update guarantee.
 
-- Settings: `localStorage`
-- Readings + saved photos: browser `IndexedDB`
-- No analytics, ads, accounts, remote database, or network API calls
-- JSON backup export intentionally omits photos to keep the backup small and portable
+## Care policy
 
-## Updating the offline app
+See `docs/CARE_RULES.md`. Final challenge uses a documented 2 ppm / within-24-hour protocol. The older 1 ppm handoff trial is progress evidence only. App time limits (24-hour current readings, 7-day challenge evidence) are conservative product choices, not validated biological expiration times. Move-in is explicitly recorded by the keeper; after that, fishless dosing controls are unavailable.
 
-When changing app files, increment `CACHE` in `sw.js` (for example `swamp-fish-v2`) so installed copies refresh their cached assets.
+## Phone preview
+
+Private isolated phone test: https://swamp-muppet-eric-phone-test.igot2board.chatgpt.site
+
+Use Eric’s owning ChatGPT account. Test data stays separate from the production GitHub Pages origin. This does not replace the final installed v1→v2 transition check. Selected Rex/Phoenix launcher art is integrated with separate normal and padded maskable assets. Android controls launcher-image refresh timing.
+
+## Before production
+
+See `docs/AUDIT_RESPONSE.md` for the six audit fixes and `docs/VALIDATION.md` for remaining checks: real Android camera/gallery, offline reopening, actual v1→v2 service-worker transition, and physical-card comparisons remain required. Software tests are not phone or measurement validation.

@@ -1,16 +1,32 @@
 {
-  "name": "Swamp Fish Control Room",
-  "short_name": "Swamp Fish",
-  "description": "Axolotl tank cycling, test tracking, photo-assisted color reading, and move-in readiness.",
+  "name": "Swamp Muppet",
+  "short_name": "Swamp Muppet",
+  "description": "Rex\u2019s world. Water tests, move-in progress, and everyday care.",
   "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#061016",
-  "theme_color": "#07131a",
+  "background_color": "#081b26",
+  "theme_color": "#081b26",
   "orientation": "portrait-primary",
   "icons": [
-    {"src":"./icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
-    {"src":"./icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+    {
+      "src": "./icons/rex-phoenix-v1-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/rex-phoenix-v1-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/rex-phoenix-v1-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

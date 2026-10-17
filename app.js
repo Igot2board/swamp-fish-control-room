@@ -1,6 +1,7 @@
 import {BUILD,FIELDS,HOUR,blankReading,eligible,latestConfirmed,status,preparePhotoReport,unresolvedBoundaries,confirmReport,canSaveReport,progressStages} from './model.js';
 import * as db from './storage.js';
 import {readPhoto,READER_VERSION} from './reader.js';
+import {captureGuidedPhoto} from './camera.js';
 const $=s=>document.querySelector(s),main=$('#main');
 let restoreSettings=false;
 let readings=[],events=[],settings={},draft=null,screen='home',busy=false,dbReady=false,urls=[],writeQueue=Promise.resolve(),updateWaiting=null;
@@ -70,8 +71,9 @@ function eric(){main.innerHTML=`${back('Back to Rex')}<span class="tag">Phoenix 
  <div class="milestone"><strong>Research reader ${READER_VERSION}</strong><p>Tube detection is experimental. Photo estimates need explicit acceptance or correction. No photos leave this device.</p><details class="details"><summary>Last photo diagnostics</summary><pre>${esc(JSON.stringify(draft?.analysis||'Take a test photo to inspect its local analysis.',null,2))}</pre></details></div>
  <div class="milestone"><h3>Water-change estimate</h3><label class="field">Actual water volume · gallons<input id="gallons" type="number" min="1" step="0.1" value="${esc(settings.gallons)}"></label><div class="field-grid"><label class="field">Current nitrate · ppm<input id="wc-current" type="number" min="0" placeholder="40"></label><label class="field">Replacement nitrate · ppm<input id="wc-source" type="number" min="0" placeholder="Test source water"></label><label class="field">Target nitrate · ppm<input id="wc-target" type="number" min="0" placeholder="10"></label></div><button class="smallbutton" data-action="water-math">Calculate</button><p id="water-result" aria-live="polite"></p></div>
  <details class="details"><summary>Correction tools</summary><p>Undo an accidental move-in marker without deleting history.</p><button class="smallbutton" data-action="undo-move" ${!settings.movedInAt?'disabled':''}>Undo move-in marker</button></details>`;}
-async function startCapture(kind){if(busy||!dbReady)return;if(draft){render('review');message('Continue your unfinished test, or discard it before starting another.');return;}$(kind==='camera'?'#camera':'#gallery').click();}
-async function onFile(e){const file=e.target.files?.[0];e.target.value='';if(!file)return;busy=true;message('Preparing your photo…');try{const photo=await readPhoto(file);draft=preparePhotoReport({...newDraft(),photo:photo.blob,analysis:photo.analysis});await queueDraft();render('review');message('');}catch(err){fail(err);message('You can also enter the test values without a photo.');}finally{busy=false;}}
+async function processPhoto(file,{guided=false}={}){if(!file)return;busy=true;message(guided?'Reading the guided photo…':'Preparing your photo…');try{const photo=await readPhoto(file,{guided});draft=preparePhotoReport({...newDraft(),photo:photo.blob,analysis:photo.analysis});await queueDraft();render('review');message('');}catch(err){fail(err);message('You can also enter the test values without a photo.');}finally{busy=false;}}
+async function startCapture(kind){if(busy||!dbReady)return;if(draft){render('review');message('Continue your unfinished test, or discard it before starting another.');return;}if(kind==='gallery'){$('#gallery').click();return;}busy=true;const result=await captureGuidedPhoto({galleryInput:$('#gallery'),fallbackCameraInput:$('#camera')});busy=false;if(result?.file)await processPhoto(result.file,{guided:result.guided});}
+async function onFile(e){const file=e.target.files?.[0];e.target.value='';if(file)await processPhoto(file);}
 $('#camera').addEventListener('change',onFile);$('#gallery').addEventListener('change',onFile);
 $('#eric-button').addEventListener('click',()=>render('eric'));
 main.addEventListener('change',async e=>{try{

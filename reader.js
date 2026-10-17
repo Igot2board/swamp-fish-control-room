@@ -1,5 +1,9 @@
 // Local-only research reader. Geometry is heuristic; numeric estimates are never confirmed data.
-export const READER_VERSION='rex-local-0.3';
+export const READER_VERSION='rex-local-0.4-camera';
+const GUIDE_CENTERS=[0.12,0.31,0.50,0.69,0.88];
+const GUIDE_SWATCH_X=[0.19,0.38,0.57,0.74,0.91];
+const GUIDE_ROWS=[0.145,0.26,0.38,0.495,0.61,0.725,0.84];
+const GUIDE_KEYS=['lowPh','ph','ammonia','nitrite','nitrate'];
 export const NUMERIC_READER_VALIDATED=false;
 const palettes={lowPh:[[6,[235,218,81]],[6.4,[204,217,138]],[6.6,[165,203,157]],[6.8,[125,190,170]],[7,[100,178,178]],[7.2,[74,163,174]],[7.6,[50,131,164]]],ammonia:[[0,[242,220,59]],[.25,[200,217,90]],[.5,[155,198,92]],[1,[104,173,100]],[2,[61,140,97]],[4,[31,108,93]],[8,[21,80,71]]],nitrite:[[0,[135,200,202]],[.25,[173,145,202]],[.5,[155,115,185]],[1,[173,82,158]],[2,[142,63,120]],[5,[107,49,94]]],nitrate:[[0,[230,210,75]],[5,[228,173,69]],[10,[224,125,72]],[20,[220,93,79]],[40,[206,63,80]],[80,[170,49,80]],[160,[124,41,67]]],ph:[[7.4,[194,138,67]],[7.8,[218,125,71]],[8,[201,118,105]],[8.2,[174,93,114]],[8.4,[143,79,131]],[8.8,[110,70,125]]]};
 function lab(rgb){let [r,g,b]=rgb.map(v=>v/255).map(v=>v>.04045?((v+.055)/1.055)**2.4:v/12.92);const f=v=>v>.008856?Math.cbrt(v):7.787*v+16/116;const x=f((r*.4124+g*.3576+b*.1805)/.95047),y=f(r*.2126+g*.7152+b*.0722),z=f((r*.0193+g*.1192+b*.9505)/1.08883);return [116*y-16,500*(x-y),200*(y-z)];}
@@ -13,10 +17,69 @@ export function sampleRegion(image,box){
  const rgb=[0,1,2].map(i=>median(pixels.map(p=>p[i]))),l=lab(rgb),spread=median(pixels.map(p=>distance(l,lab(p))));
  return {ok:spread<22&&clipped/total<.45,rgb,spread,clipped:clipped/total,coverage:pixels.length/total,reason:spread>=22?'Reflections or mixed colors.':clipped/total>=.45?'Too much glare or shadow.':null};
 }
+function guidedWhiteReference(image){
+ const {width:w,height:h,data}=image,pixels=[];
+ for(let y=Math.floor(h*.04);y<Math.floor(h*.24);y++)for(let x=Math.floor(w*.04);x<Math.floor(w*.96);x++){
+  if(GUIDE_CENTERS.some(c=>Math.abs(x/w-c)<.055))continue;
+  const i=(y*w+x)*4,r=data[i],g=data[i+1],b=data[i+2],mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+  if(data[i+3]<200||mx<145||mx>245||mx-mn>55)continue;pixels.push([r,g,b]);
+ }
+ if(pixels.length<80)return null;
+ const rgb=[0,1,2].map(i=>median(pixels.map(p=>p[i]))),target=(rgb[0]+rgb[1]+rgb[2])/3;
+ return {rgb,scale:rgb.map(v=>Math.max(.72,Math.min(1.35,target/Math.max(1,v))))};
+}
+function guidedSample(image,cx,key,white){
+ const {width:w,height:h,data}=image,pixels=[],total=[];
+ const x0=Math.floor(w*(cx-.026)),x1=Math.ceil(w*(cx+.026)),y0=Math.floor(h*.38),y1=Math.floor(h*.92);
+ for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){
+  const i=(y*w+x)*4;if(data[i+3]<200)continue;const rgb=[data[i],data[i+1],data[i+2]];total.push(rgb);
+  const mx=Math.max(...rgb),mn=Math.min(...rgb);if(mx>=250||mn<18)continue;
+  const chroma=(mx-mn)/Math.max(1,mx);if(key!=='nitrite'&&chroma<.18)continue;
+  pixels.push(rgb);
+ }
+ if(total.length<80||pixels.length<60)return {ok:false,reason:'Tube area is too bright, dark, or blocked.',coverage:total.length?pixels.length/total.length:0};
+ const rgb=[0,1,2].map(i=>median(pixels.map(p=>p[i]))),l=lab(rgb),spread=median(pixels.map(p=>distance(l,lab(p))));
+ const chroma=(Math.max(...rgb)-Math.min(...rgb))/Math.max(1,Math.max(...rgb));
+ const correctedRgb=white?rgb.map((v,k)=>Math.max(0,Math.min(255,v*white.scale[k]))):rgb;
+ return {ok:spread<42,rgb,correctedRgb,spread,chroma,coverage:pixels.length/total.length,reason:spread>=42?'Too much glare or mixed color in this tube.':null};
+}
+function guidedSwatch(image,cx,cy){
+ const {width:w,height:h,data}=image,pixels=[];
+ const x0=Math.floor(w*(cx-.028)),x1=Math.ceil(w*(cx+.028)),y0=Math.floor(h*(cy-.025)),y1=Math.ceil(h*(cy+.025));
+ for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){
+  const i=(y*w+x)*4;if(data[i+3]<200)continue;const rgb=[data[i],data[i+1],data[i+2]],mx=Math.max(...rgb),mn=Math.min(...rgb);
+  if(mx>=248||mn<18)continue;pixels.push(rgb);
+ }
+ if(pixels.length<50)return null;
+ const rgb=[0,1,2].map(i=>median(pixels.map(p=>p[i])));
+ return {rgb};
+}
+function guidedMatches(key,sample,image,swatchX){
+ if(!sample.ok||!palettes[key])return {status:'unreadable',candidates:[],validated:false};
+ const normalize=rgb=>rgb.map(v=>v*220/Math.max(...rgb));
+ const refs=palettes[key].map(([value],i)=>{const ref=guidedSwatch(image,swatchX,GUIDE_ROWS[i]);return ref?{value,rgb:ref.rgb}:null;}).filter(Boolean);
+ if(refs.length>=Math.min(4,palettes[key].length)){
+  let ranked=refs.map(ref=>({value:ref.value,distance:.75*distance(lab(normalize(sample.rgb)),lab(normalize(ref.rgb)))+.25*distance(lab(sample.rgb),lab(ref.rgb)),referenceRgb:ref.rgb})).sort((a,b)=>a.distance-b.distance);
+  if(['ammonia','nitrite'].includes(key)&&ranked[0]?.value<=.25){
+   const boundary=[ranked.find(p=>p.value===0),ranked.find(p=>p.value===.25)].filter(Boolean).sort((a,b)=>a.distance-b.distance);
+   return {status:'experimental',candidates:boundary,validated:false,decisionBoundary:true,reference:'card'};
+  }
+  return {status:'experimental',candidates:ranked.slice(0,2),validated:false,decisionBoundary:ranked.slice(0,2).some(p=>p.value===0),reference:'card'};
+ }
+ return {...researchMatches(key,{...sample,rgb:sample.correctedRgb||sample.rgb}),reference:'fallback-palette'};
+}
+export function analyzeGuidedPixels(image){
+ const {width:w,height:h,data}=image;if(!w||!h||data.length!==w*h*4)throw Error('Invalid image pixels.');
+ const white=guidedWhiteReference(image);
+ const tubes=GUIDE_CENTERS.map((cx,i)=>{const key=GUIDE_KEYS[i],sample=guidedSample(image,cx,key,white);return {possibleKey:key,guided:true,sample,research:guidedMatches(key,sample,image,GUIDE_SWATCH_X[i])};});
+ const readable=tubes.filter(t=>t.research.candidates.length).length,cardRefs=tubes.filter(t=>t.research.reference==='card').length;
+ return {version:READER_VERSION,guidedCapture:true,layout:5,tubes,whiteReference:white,referenceCardDetected:cardRefs>=3,referenceColumns:cardRefs,message:readable?'Read '+readable+' of 5 guided tubes. Check the suggested values against the card.':'I could not read the guided tubes reliably. Retake the photo or enter the card readings.',numericValidated:false};
+}
 export function researchMatches(key,sample){
  if(!sample.ok||!palettes[key])return {status:'unreadable',candidates:[],validated:false};
  const normalize=rgb=>rgb.map(v=>v*220/Math.max(...rgb));
  const ranked=palettes[key].map(([value,rgb])=>({value,distance:(key==='ammonia'?.3:.85)*distance(lab(normalize(sample.rgb)),lab(normalize(rgb)))+(key==='ammonia'?.7:.15)*distance(lab(sample.rgb),lab(rgb))})).sort((a,b)=>a.distance-b.distance);
+ if(key==='nitrite'&&sample.chroma!=null&&sample.chroma<.12){const boundary=[0,.25].map(value=>ranked.find(p=>p.value===value));return {status:'experimental',candidates:boundary,validated:false,decisionBoundary:true,lowChroma:true};}
  return {status:'experimental',candidates:ranked.slice(0,2),validated:false,decisionBoundary:ranked.slice(0,2).some(p=>p.value===0)};
 }
 function category(r,g,b){const max=Math.max(r,g,b),min=Math.min(r,g,b);if(max<40||max-min<20||(max-min)/max<.20)return 0;
@@ -108,7 +171,7 @@ export function analyzePixels(image){
  for(let i=0;i<tubes.length;i++){tubes[i].possibleKey=keys[i]||null;tubes[i].research=researchMatches(keys[i],tubes[i].sample);}
  return {version:READER_VERSION,quality,tubes,layout,message:layout?`Found ${layout} possible tubes. Check their order below.`:'I could not reliably separate all the tubes. You can still enter your card readings.',numericValidated:false,referenceCardDetected:false};
 }
-export async function readPhoto(file){
+export async function readPhoto(file,{guided=false}={}){
  if(!file||!file.type.startsWith('image/'))throw Error('Choose a JPG, PNG, or another supported photo.');
  if(file.size>25*1024*1024)throw Error('That photo is too large. Choose one under 25 MB.');
  const url=URL.createObjectURL(file);const img=new Image();
@@ -116,7 +179,7 @@ export async function readPhoto(file){
  if(img.naturalWidth*img.naturalHeight>50000000)throw Error('Try a smaller photo under 50 megapixels.');
  const canvas=document.createElement('canvas'),scale=Math.min(1,1280/Math.max(img.naturalWidth,img.naturalHeight));canvas.width=Math.round(img.naturalWidth*scale);canvas.height=Math.round(img.naturalHeight*scale);canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.84));if(!blob)throw Error('Could not prepare this photo. Try another.');
- const small=document.createElement('canvas'),s=Math.min(1,480/Math.max(canvas.width,canvas.height));small.width=Math.round(canvas.width*s);small.height=Math.round(canvas.height*s);const ctx=small.getContext('2d',{willReadFrequently:true});ctx.drawImage(canvas,0,0,small.width,small.height);
- const analysis=analyzePixels(ctx.getImageData(0,0,small.width,small.height));return {blob,analysis,width:small.width,height:small.height};
+ const small=document.createElement('canvas'),s=Math.min(1,(guided?960:480)/Math.max(canvas.width,canvas.height));small.width=Math.round(canvas.width*s);small.height=Math.round(canvas.height*s);const ctx=small.getContext('2d',{willReadFrequently:true});ctx.drawImage(canvas,0,0,small.width,small.height);
+ const pixels=ctx.getImageData(0,0,small.width,small.height);const analysis=guided?analyzeGuidedPixels(pixels):analyzePixels(pixels);return {blob,analysis,width:small.width,height:small.height};
  }finally{URL.revokeObjectURL(url);}
 }

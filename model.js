@@ -1,4 +1,4 @@
-export const BUILD = '2.0.0-rex.6';
+export const BUILD = '2.0.0-rex.7';
 export const HOUR = 3600000;
 export const FIELDS = {
   ammonia:{label:'Ammonia',unit:'ppm',values:[0,.25,.5,1,2,4,8]},

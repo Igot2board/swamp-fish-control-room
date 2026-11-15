@@ -106,3 +106,13 @@ h3{font-size:19px;line-height:1.25}
 
 /* Keep page headings from crowding the back control on small screens. */
 .back{display:block;width:max-content;margin:0 0 6px;padding:11px 0 8px;font-size:14.5px}
+
+/* Optional GH/KH mineral snapshot. */
+.hardness-card{margin:16px 0;padding:18px;border:1px solid #4b6f70;border-radius:18px;background:linear-gradient(145deg,#102f35,#0b252e);box-shadow:0 10px 28px #0002}
+.hardness-title{display:block;font-size:19px;margin:7px 0 4px;color:#e6f8f4}
+.hardness-values{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:13px 0}
+.hardness-values>div{padding:12px;border:1px solid #36565d;border-radius:13px;background:#071d25}
+.hardness-values span,.hardness-values small{display:block;color:#9dbfc4;font-size:11.5px}
+.hardness-values strong{display:block;font-size:18px;margin:3px 0;color:#e6f8f4}
+.hardness-entry{margin:8px 0 15px;padding:0 12px;border:1px solid #31515a;border-radius:13px;background:#0b222c}
+.hardness-entry summary{font-weight:700;color:#bfe8e1}

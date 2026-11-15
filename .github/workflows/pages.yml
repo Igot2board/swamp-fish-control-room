@@ -25,7 +25,7 @@ jobs:
       - name: Package app assets only
         run: |
           mkdir -p site/icons
-          cp index.html styles.css app.js model.js storage.js reader.js sw.js manifest.webmanifest version.json site/
+          cp index.html styles.css app.js camera.js model.js storage.js reader.js sw.js manifest.webmanifest version.json site/
           cp icons/*.png site/icons/
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'

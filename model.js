@@ -1,13 +1,16 @@
-export const BUILD = '2.0.0-rex.7';
+export const BUILD = '2.0.0-rex.8';
 export const HOUR = 3600000;
 export const FIELDS = {
   ammonia:{label:'Ammonia',unit:'ppm',values:[0,.25,.5,1,2,4,8]},
   nitrite:{label:'Nitrite',unit:'ppm',values:[0,.25,.5,1,2,5]},
   nitrate:{label:'Nitrate',unit:'ppm',values:[0,5,10,20,40,80,160]},
   ph:{label:'High-range pH',unit:'',values:[7.4,7.8,8,8.2,8.4,8.8]},
-  lowPh:{label:'Low-range pH',unit:'',values:[6,6.4,6.6,6.8,7,7.2,7.6]}
+  lowPh:{label:'Low-range pH',unit:'',values:[6,6.4,6.6,6.8,7,7.2,7.6]},
+  kh:{label:'Carbonate hardness',unit:'dKH',values:Array.from({length:60},(_,i)=>i+1)},
+  gh:{label:'General hardness',unit:'dGH',values:Array.from({length:60},(_,i)=>i+1)}
 };
-export const blankReading = () => ({ammonia:null,nitrite:null,nitrate:null,ph:null,lowPh:null,temp:null,note:'',confirmed:false});
+export const blankReading = () => ({ammonia:null,nitrite:null,nitrate:null,ph:null,lowPh:null,kh:null,gh:null,temp:null,note:'',confirmed:false});
+const CORE_FIELDS=['ammonia','nitrite','nitrate','ph','lowPh','temp'];
 export function validNumber(v){return typeof v==='number'&&Number.isFinite(v);}
 export function validateReading(r){
   if(!validNumber(r.createdAt)||r.createdAt<=0||r.createdAt>Date.now()+60000)throw Error('Choose a valid test date and time.');
@@ -18,10 +21,27 @@ export function validateReading(r){
   if(typeof r.note!=='string'||r.note.length>1000)throw Error('Keep the note under 1,000 characters.');
   return r;
 }
-export function eligible(r){return r?.confirmed===true&&['manual','photo_manual_confirmed','photo_suggested_confirmed','photo_manual_override'].includes(r.source);}
+export function eligible(r){return r?.confirmed===true&&['manual','photo_manual_confirmed','photo_suggested_confirmed','photo_manual_override','owner_reported'].includes(r.source);}
 export function fresh(r,now=Date.now()){return eligible(r)&&now>=r.createdAt&&now-r.createdAt<=24*HOUR;}
-export function latestConfirmed(readings){return readings.filter(eligible).sort((a,b)=>b.createdAt-a.createdAt)[0]||null;}
+export function latestConfirmed(readings){return readings.filter(r=>eligible(r)&&CORE_FIELDS.some(k=>r[k]!=null)).sort((a,b)=>b.createdAt-a.createdAt)[0]||null;}
 export function latestValues(readings){const result={};for(const r of [...readings].filter(eligible).sort((a,b)=>b.createdAt-a.createdAt))for(const k of [...Object.keys(FIELDS),'temp'])if(result[k]===undefined&&r[k]!=null)result[k]={value:r[k],createdAt:r.createdAt};return result;}
+export function hardnessPpm(degrees){return validNumber(degrees)?Math.round(degrees*17.9):null;}
+export function hardnessInfo(kh,gh){
+  const khPpm=hardnessPpm(kh),ghPpm=hardnessPpm(gh),notes=[];
+  if(kh==null&&gh==null)return {title:'Hardness not checked',detail:'GH and KH are optional mineral checks.',khPpm,ghPpm};
+  if(kh!=null){
+    if(kh<3)notes.push('KH is low, so pH has less buffering against swings.');
+    else if(kh<=8)notes.push('KH is in the commonly cited axolotl range.');
+    else notes.push('KH is high, so the water is strongly buffered and pH may naturally run alkaline.');
+  }
+  if(gh!=null){
+    if(gh<7)notes.push('GH is softer than the commonly cited axolotl range.');
+    else if(gh<=14)notes.push('GH is in the commonly cited axolotl range.');
+    else notes.push('GH is very hard; axolotls can adapt to very hard water, though mineral buildup may be more noticeable.');
+  }
+  const high=(kh!=null&&kh>8)||(gh!=null&&gh>14),low=(kh!=null&&kh<3)||(gh!=null&&gh<7);
+  return {title:high?'Hard & well buffered':low?'Minerals need a closer look':'Minerals are in the usual zone',detail:notes.join(' ')+' Hardness is context, not a move-in pass/fail gate.',khPpm,ghPpm};
+}
 export function challengeResult(challenge,readings,events,now=Date.now()){
   if(!challenge)return {state:'none'};
   const start=readings.find(r=>r.id===challenge.readingId);
@@ -82,7 +102,16 @@ export const SEEDS = [
  ['2026-10-11',0,1,20,null,'Nitrite about 1; nitrate 20–40 ppm.'],
  ['2026-10-13',null,.5,null,null,'Nitrite about 0.5–1 ppm.'],
  ['2026-10-15',0,.25,40,8,'Nitrite about 0.25–0.5 ppm; photo interpretation, not a verified measurement.']
-].map(([date,ammonia,nitrite,nitrate,ph,note])=>({id:'seed-'+date,createdAt:Date.parse(date+'T12:00:00-05:00'),ammonia,nitrite,nitrate,ph,temp:null,lowPh:null,note,confirmed:false,source:'chat_seeded',approximate:true}));
+].map(([date,ammonia,nitrite,nitrate,ph,note])=>({id:'seed-'+date,createdAt:Date.parse(date+'T12:00:00-05:00'),ammonia,nitrite,nitrate,ph,temp:null,lowPh:null,kh:null,gh:null,note,confirmed:false,source:'chat_seeded',approximate:true}));
+
+export const HARDNESS_SEED={
+  id:'owner-hardness-2026-11-15',
+  createdAt:Date.parse('2026-11-15T09:03:00-06:00'),
+  ammonia:null,nitrite:null,nitrate:null,ph:null,lowPh:null,temp:null,
+  kh:12,gh:20,
+  note:'API GH/KH drop test: KH 12 drops (12 dKH ≈ 215 ppm); GH 20 drops (20 dGH ≈ 358 ppm).',
+  confirmed:true,source:'owner_reported',approximate:false
+};
 
 // Estimates populate the editable report only. Nothing is confirmed until the save action.
 export function preparePhotoReport(draft){

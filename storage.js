@@ -1,4 +1,4 @@
-import {SEEDS} from './model.js';
+import {SEEDS,HARDNESS_SEED} from './model.js';
 export const DB_NAME='swamp-fish-control-room';
 export const DB_VERSION=2;
 let connection;
@@ -20,6 +20,7 @@ export async function initialize(){
   let settings=(await get('meta','settings'))?.value;
   if(!settings){let legacy={};try{legacy=JSON.parse(localStorage.getItem('sf_settings')||'{}');}catch{}settings={gallons:legacy.gallons||'',creatureName:'Rex',movedInAt:null,challenge:null};await put('meta',{id:'settings',value:settings});}
   await transact(['readings','meta'],'readwrite',tx=>{const meta=tx.objectStore('meta');const request=meta.get('seed-v1');request.onsuccess=()=>{if(request.result)return;for(const seed of SEEDS)tx.objectStore('readings').put(seed);meta.put({id:'seed-v1',value:true});};});
+  await transact(['readings','meta'],'readwrite',tx=>{const meta=tx.objectStore('meta');const request=meta.get('seed-hardness-v1');request.onsuccess=()=>{if(request.result)return;tx.objectStore('readings').put(HARDNESS_SEED);meta.put({id:'seed-hardness-v1',value:true});};});
   return settings;
 }
 export async function saveTest(record){return transact(['readings','meta'],'readwrite',tx=>{const r=tx.objectStore('readings').add(record);tx.objectStore('meta').delete('draft');return r;});}

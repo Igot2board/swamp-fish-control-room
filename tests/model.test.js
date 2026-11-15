@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {blankReading,validateReading,status,challengeResult,HOUR,SEEDS} from '../model.js';
+import {blankReading,validateReading,status,challengeResult,HOUR,SEEDS,HARDNESS_SEED,hardnessPpm,hardnessInfo,latestConfirmed} from '../model.js';
 const now=Date.now();const record=(extra={})=>({...blankReading(),id:'a',createdAt:now,source:'manual',confirmed:true,ammonia:0,nitrite:0,nitrate:10,ph:8,temp:64,...extra});
 test('blank and approximate history never clear readiness',()=>{assert.equal(status([],{},[],now).ready,false);assert.equal(status(SEEDS,{},[],now).gates.filter(g=>g.pass).length,0);assert.throws(()=>validateReading({...blankReading(),createdAt:now,confirmed:true}),/at least one/);});
 test('zeroes without a challenge cannot clear move-in',()=>assert.equal(status([record()],{homeChecks:now},[],now).ready,false));
@@ -67,4 +67,15 @@ test('empty or unresolved reports cannot save, and actual zero and temperature a
  assert.equal(canSaveReport({...blankReading(),ammonia:0}),true);assert.equal(canSaveReport({...blankReading(),temp:64}),true);
  const d={...blankReading(),ammonia:0,decisions:{ammonia:'suggested'},analysis:{tubes:[{possibleKey:'ammonia',research:{candidates:[{value:0},{value:.25}]}}]}};
  assert.equal(canSaveReport(d),false);
+});
+
+test('GH/KH conversion and guidance stay informational, not move-in gates',()=>{
+ assert.equal(hardnessPpm(12),215);assert.equal(hardnessPpm(20),358);
+ const h=hardnessInfo(12,20);assert.equal(h.title,'Hard & well buffered');assert.match(h.detail,/very hard/i);assert.match(h.detail,/not a move-in/i);
+ assert.equal(latestConfirmed([record({createdAt:now-HOUR}),HARDNESS_SEED]).id,'a');
+ const st=status([HARDNESS_SEED],{},[],now);assert.equal(st.ready,false);assert.equal(st.gates.filter(g=>g.pass).length,0);
+});
+test('hardness-only manual readings validate without pretending to be core chemistry',()=>{
+ const r={...blankReading(),id:'hard',createdAt:now,source:'manual',confirmed:true,kh:12,gh:20};
+ assert.equal(validateReading(r).kh,12);assert.equal(latestConfirmed([r]),null);
 });
